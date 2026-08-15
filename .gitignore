@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.local
+.DS_Store
+*.log
+npm-debug.log*
+cf-worker/node_modules/
+cf-worker/.wrangler/
+cf-worker/package-lock.json

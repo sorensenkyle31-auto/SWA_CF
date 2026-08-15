@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<title>SWA Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:#F5F2EC;color:#1A1A1A;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;overscroll-behavior:none;}
+input,button,textarea,select{font-family:inherit;font-size:16px;}
+button{cursor:pointer;border:none;background:none;}
+
+:root{
+  --green:#2D5016;--green-mid:#3D6B1F;--green-lt:#4E8226;
+  --gold:#B8860B;--gold-lt:#C9960F;
+  --bg:#F5F2EC;--card:#FFFFFF;--card2:#F9F7F3;
+  --border:#DDD8CE;--border2:#EAE6DE;
+  --text:#1A1A1A;--text2:#555;--text3:#999;
+  --red:#C0392B;--amber:#C87A12;--blue:#2471A3;
+  --radius:10px;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bot:env(safe-area-inset-bottom,0px);
+}
+
+#app{height:100%;display:flex;flex-direction:column;}
+.view{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
+.view.hidden{display:none!important;}
+
+/* ── Login ─────────────────────────────────────────────────────────────────── */
+#view-login{align-items:center;justify-content:center;padding:32px 24px;background:#F5F2EC;}
+.login-box{width:100%;max-width:360px;}
+.login-brand{text-align:center;margin-bottom:36px;}
+.login-icon{font-size:44px;margin-bottom:10px;}
+.login-title{font-size:22px;font-weight:800;color:var(--green);}
+.login-sub{font-size:11px;color:var(--text3);margin-top:4px;letter-spacing:1.5px;text-transform:uppercase;}
+.login-err{background:#FDF0EE;border:1px solid #E8C4BF;color:var(--red);border-radius:8px;padding:11px 14px;font-size:13px;margin-bottom:14px;display:none;}
+.lfield{margin-bottom:14px;}
+.lfield label{display:block;font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text3);margin-bottom:6px;}
+.lfield input{width:100%;padding:13px 15px;background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:16px;outline:none;transition:border-color .15s;}
+.lfield input:focus{border-color:var(--green);}
+.btn-login{width:100%;padding:15px;margin-top:6px;background:var(--green);color:#fff;border-radius:var(--radius);font-size:16px;font-weight:700;letter-spacing:.3px;transition:background .15s;}
+.btn-login:active{background:var(--green-mid);}
+
+/* ── Top bar ───────────────────────────────────────────────────────────────── */
+.top-bar{
+  padding:calc(var(--safe-top)+12px) 16px 12px;
+  background:var(--card);
+  border-bottom:1px solid var(--border2);
+  display:flex;align-items:center;gap:12px;
+  position:sticky;top:0;z-index:100;flex-shrink:0;
+}
+.top-back{
+  width:38px;height:38px;border-radius:50%;
+  background:var(--bg);border:1.5px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  font-size:18px;color:var(--green);font-weight:700;flex-shrink:0;
+}
+.top-title{flex:1;font-size:17px;font-weight:700;color:var(--text);}
+.top-sub{font-size:11px;color:var(--text3);margin-top:1px;}
+.top-action{font-size:13px;font-weight:700;color:var(--green);padding:8px 4px;}
+.user-bar{padding:calc(var(--safe-top)+10px) 16px 10px;background:var(--card);border-bottom:1px solid var(--border2);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.user-name{font-size:13px;font-weight:600;color:var(--text2);}
+.logout-btn{font-size:13px;color:var(--red);font-weight:600;padding:6px 10px;border-radius:6px;background:#FDF0EE;}
+
+/* ── Tabs ──────────────────────────────────────────────────────────────────── */
+.tab-bar{display:flex;border-bottom:2px solid var(--border2);padding:0 4px;background:var(--card);flex-shrink:0;overflow-x:auto;scrollbar-width:none;}
+.tab-bar::-webkit-scrollbar{display:none;}
+.tab-btn{padding:12px 14px;font-size:12px;font-weight:700;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap;letter-spacing:.3px;flex-shrink:0;transition:all .15s;}
+.tab-btn.active{color:var(--green);border-bottom-color:var(--green);}
+
+/* ── Badges ────────────────────────────────────────────────────────────────── */
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;}
+.badge-pending{background:#FEF3E2;color:var(--amber);border:1px solid #F5D9A8;}
+.badge-invoiced{background:#EAF4E1;color:var(--green-lt);border:1px solid #C3DFA8;}
+.badge-paid{background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;}
+.badge-ready{background:#E3F2FD;color:var(--blue);border:1px solid #90CAF9;}
+.badge-fulfilled{background:#F3F4F6;color:#6B7280;border:1px solid #D1D5DB;}
+.badge-cancelled{background:#FEE2E2;color:var(--red);border:1px solid #FCA5A5;}
+
+/* ── Order cards ───────────────────────────────────────────────────────────── */
+.orders-list{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;background:var(--bg);}
+.ord-card{background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);padding:16px;cursor:pointer;transition:all .15s;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+.ord-card:active{border-color:var(--green);transform:scale(.99);}
+.ord-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+.ord-num{font-size:15px;font-weight:800;color:var(--text);}
+.ord-date{font-size:11px;color:var(--text3);margin-top:2px;}
+.ord-customer{font-size:14px;font-weight:600;color:var(--text);}
+.src-tag{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;vertical-align:middle;margin-left:2px;}
+.src-manual{background:#FDF3E7;color:#B8720B;}
+.src-online{background:#E7F0FD;color:#2471A3;}
+.ord-contact{font-size:12px;color:var(--text2);margin-top:3px;}
+.ord-footer{display:flex;align-items:center;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:1px solid var(--border2);}
+.empty-state{text-align:center;padding:60px 24px;color:var(--text3);}
+.empty-icon{font-size:36px;margin-bottom:10px;}
+.spinner{text-align:center;padding:48px;color:var(--text3);}
+
+/* ── Detail ────────────────────────────────────────────────────────────────── */
+.detail-scroll{flex:1;overflow-y:auto;background:var(--bg);}
+.detail-body{padding:14px 14px 0;}
+.det-section{margin-bottom:14px;}
+.det-section-title{font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text3);margin-bottom:8px;padding-left:2px;}
+.info-card{background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;}
+.info-row{display:flex;justify-content:space-between;align-items:flex-start;padding:11px 14px;border-bottom:1px solid var(--border2);}
+.info-row:last-child{border-bottom:none;}
+.info-label{font-size:12px;color:var(--text3);flex-shrink:0;}
+.info-val{font-size:13px;font-weight:600;text-align:right;max-width:60%;}
+
+/* ── Bulk note ─────────────────────────────────────────────────────────────── */
+.bulk-note{font-size:11px;color:var(--amber);margin-top:8px;}
+
+/* ── Consolidated single-row weight entry (Needs Weighing + New Order) ──────── */
+.wt-line{display:flex;align-items:center;gap:6px;background:var(--card);border:1.5px solid var(--border2);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;transition:border-color .2s;}
+.wt-line.weighed{border-color:var(--green-lt);background:#FAFDF7;}
+.wt-line-name{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wt-line-field{width:56px;flex-shrink:0;}
+.wt-line-field input{width:100%;padding:7px 5px;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;text-align:right;transition:border-color .15s;}
+.wt-line-field input:focus{border-color:var(--green);background:#fff;}
+.wt-line-sep{font-size:10px;color:var(--text3);flex-shrink:0;}
+.wt-line-total{width:54px;flex-shrink:0;text-align:right;font-size:12.5px;font-weight:800;color:var(--green);white-space:nowrap;}
+.wt-line-remove{width:24px;height:24px;border-radius:6px;border:1.5px solid #FCA5A5;background:#FDF0EE;color:var(--red);font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.wt-line-remove:active{background:#FADBD5;}
+.wt-line-bulk-note{font-size:10.5px;color:var(--amber);margin:-4px 0 8px 4px;}
+
+/* ── Totals ────────────────────────────────────────────────────────────────── */
+.totals-card{background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);padding:14px;}
+.tot-row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;color:var(--text2);}
+.tot-grand{font-size:18px;font-weight:800;color:var(--text);border-top:1.5px solid var(--border);margin-top:8px;padding-top:10px;}
+.tot-grand span:last-child{color:var(--green);}
+
+/* ── Progress steps ────────────────────────────────────────────────────────── */
+.progress-bar{background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;display:flex;align-items:center;gap:0;}
+.prog-step{display:flex;flex-direction:column;align-items:center;flex:1;position:relative;}
+.prog-step:not(:last-child)::after{content:'';position:absolute;top:14px;left:50%;width:100%;height:2px;background:var(--border2);z-index:0;}
+.prog-step.done::after{background:var(--green-lt);}
+.prog-dot{width:28px;height:28px;border-radius:50%;border:2px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--text3);position:relative;z-index:1;transition:all .2s;}
+.prog-step.done .prog-dot{background:var(--green-lt);border-color:var(--green-lt);color:#fff;}
+.prog-step.current .prog-dot{border-color:var(--green);color:var(--green);font-weight:800;}
+.prog-label{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text3);margin-top:4px;text-align:center;}
+.prog-step.done .prog-label{color:var(--green-lt);}
+.prog-step.current .prog-label{color:var(--green);}
+
+/* ── Completion checkboxes ─────────────────────────────────────────────────── */
+.completion-card{background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;margin-bottom:14px;}
+.completion-title{font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text3);padding:12px 14px 8px;border-bottom:1px solid var(--border2);}
+.cb-row{display:flex;align-items:center;gap:14px;padding:14px;border-bottom:1px solid var(--border2);cursor:pointer;transition:background .12s;-webkit-tap-highlight-color:transparent;}
+.cb-row:last-of-type{border-bottom:none;}
+.cb-row:active{background:var(--bg);}
+.cb-row.locked{opacity:.45;cursor:not-allowed;}
+.cb-box{width:28px;height:28px;border-radius:8px;border:2px solid var(--border);background:var(--bg);display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .18s;}
+.cb-box.checked{background:var(--green);border-color:var(--green);}
+.cb-check{color:#fff;font-size:15px;font-weight:800;display:none;}
+.cb-box.checked .cb-check{display:block;}
+.cb-text{flex:1;}
+.cb-label{font-size:15px;font-weight:600;color:var(--text);}
+.cb-sub{font-size:12px;color:var(--text3);margin-top:2px;}
+.cb-lock-note{font-size:11px;color:var(--amber);margin-top:2px;}
+.ready-banner{background:#E8F5E9;border:1.5px solid #A5D6A7;border-radius:var(--radius);padding:13px 15px;margin-bottom:14px;display:none;font-size:13px;color:#2E7D32;font-weight:600;text-align:center;}
+.ready-banner.show{display:block;}
+
+/* ── Actions ───────────────────────────────────────────────────────────────── */
+.detail-actions{padding:14px;padding-bottom:calc(14px + var(--safe-bot));display:flex;flex-direction:column;gap:10px;background:var(--bg);border-top:1px solid var(--border2);flex-shrink:0;}
+.btn-primary{width:100%;padding:15px;background:var(--green);color:#fff;border-radius:var(--radius);font-size:15px;font-weight:700;letter-spacing:.3px;transition:background .15s;}
+.btn-primary:active{background:var(--green-mid);}
+.btn-primary:disabled{background:var(--border);color:var(--text3);}
+.btn-secondary{width:100%;padding:13px;border:1.5px solid var(--green);border-radius:var(--radius);color:var(--green);font-size:14px;font-weight:700;background:transparent;transition:all .15s;}
+.btn-secondary:active{background:#EAF4E1;}
+.status-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.btn-status{padding:12px;background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);font-size:13px;font-weight:700;color:var(--text2);transition:all .15s;}
+.btn-status:active{background:var(--bg);}
+.btn-status.fulfilled{border-color:#D1D5DB;color:#6B7280;}
+.btn-status.cancelled{border-color:#FCA5A5;color:var(--red);}
+
+/* ── Invoice history ───────────────────────────────────────────────────────── */
+.inv-sent-card{background:#EAF4E1;border:1px solid #C3DFA8;border-radius:var(--radius);padding:12px 14px;margin-bottom:14px;}
+.inv-sent-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--green);margin-bottom:6px;}
+.inv-sent-row{display:flex;justify-content:space-between;font-size:13px;color:#2D5016;padding:3px 0;}
+
+/* ── Toast ─────────────────────────────────────────────────────────────────── */
+.toast{position:fixed;bottom:calc(20px + var(--safe-bot));left:50%;transform:translateX(-50%) translateY(16px);background:#1A1A1A;color:#fff;padding:11px 20px;border-radius:30px;font-size:13px;font-weight:600;opacity:0;transition:all .22s;z-index:999;white-space:nowrap;max-width:calc(100vw - 32px);text-align:center;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.success{background:var(--green);}
+.toast.error{background:var(--red);}
+
+/* ── New Order form ────────────────────────────────────────────────────────── */
+.nf-card{background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;}
+.nf-line{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border2);}
+.nf-line:last-child{border-bottom:none;}
+.nf-line-label{font-size:12px;color:var(--text3);flex-shrink:0;width:84px;}
+.nf-line input,.nf-line textarea{flex:1;min-width:0;border:none;background:transparent;color:var(--text);outline:none;padding:0;text-align:right;font-family:inherit;font-size:16px;}
+.nf-line textarea{resize:none;text-align:left;overflow:hidden;line-height:1.4;padding-top:2px;}
+.nf-line input:focus,.nf-line textarea:focus{color:var(--green);}
+.inv-cat-hdr{font-size:10px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:var(--green-lt);padding:14px 4px 6px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;user-select:none;}
+.inv-cat-hdr:active{opacity:.7;}
+.inv-cat-chevron{font-size:11px;color:var(--text3);transition:transform .18s;}
+.inv-cat-chevron.collapsed{transform:rotate(-90deg);}
+.inv-cat-items.collapsed{display:none;}
+.inv-item-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;}
+.inv-item-info{flex:1;min-width:0;}
+.inv-item-name{font-size:14px;font-weight:600;color:var(--text);}
+.inv-item-price{font-size:12px;color:var(--text3);margin-top:2px;}
+.inv-item-added{font-size:11px;color:var(--green-lt);font-weight:700;margin-top:2px;}
+.add-row-btn{width:36px;height:36px;border-radius:50%;border:1.5px solid var(--green);background:var(--green);color:#fff;font-size:19px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.add-row-btn:active{background:var(--green-mid);}
+.selected-bar{position:sticky;bottom:0;background:var(--card);border-top:1px solid var(--border2);padding:10px 14px;font-size:13px;color:var(--text2);text-align:center;font-weight:600;}
+.inv-search-wrap{position:sticky;top:0;background:var(--bg);padding-bottom:8px;z-index:5;}
+.inv-search{width:100%;padding:11px 14px 11px 38px;background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:15px;outline:none;transition:border-color .15s;position:relative;}
+.inv-search:focus{border-color:var(--green);}
+.inv-search-box{position:relative;}
+.inv-search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:15px;color:var(--text3);pointer-events:none;}
+.inv-search-clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:50%;background:var(--border2);color:var(--text2);font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:center;display:none;}
+.inv-search-clear.show{display:flex;}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- LOGIN -->
+<div class="view" id="view-login">
+  <div class="login-box">
+    <div class="login-brand">
+      <div class="login-icon">🐄</div>
+      <div class="login-title">Stone Wall Angus</div>
+      <div class="login-sub">Store Admin</div>
+    </div>
+    <div class="login-err" id="login-err"></div>
+    <div class="lfield"><label>Username</label>
+      <input type="text" id="login-user" autocomplete="username" placeholder="admin"
+             onkeydown="if(event.key==='Enter')document.getElementById('login-pass').focus()"/>
+    </div>
+    <div class="lfield"><label>Password</label>
+      <input type="password" id="login-pass" autocomplete="current-password" placeholder="••••••••"
+             onkeydown="if(event.key==='Enter')doLogin()"/>
+    </div>
+    <button class="btn-login" id="login-btn" onclick="doLogin()">Sign In</button>
+  </div>
+</div>
+
+<!-- ORDERS LIST -->
+<div class="view hidden" id="view-list">
+  <div class="user-bar">
+    <span class="user-name" id="user-label">👤 admin</span>
+    <button class="logout-btn" onclick="doLogout()">Sign Out</button>
+  </div>
+  <div class="top-bar" style="padding-top:12px;">
+    <div class="top-title">Orders</div>
+    <button class="top-action" onclick="openNewOrder()" style="margin-right:6px;">+ New</button>
+    <button class="top-action" onclick="loadOrders()">↻ Refresh</button>
+  </div>
+  <div class="tab-bar">
+    <button class="tab-btn active" data-status="pending_weight" onclick="switchTab(this)">Needs Weighing</button>
+    <button class="tab-btn" data-status="invoiced"      onclick="switchTab(this)">Invoiced</button>
+    <button class="tab-btn" data-status="paid"          onclick="switchTab(this)">Paid</button>
+    <button class="tab-btn" data-status="ready"         onclick="switchTab(this)">Ready</button>
+    <button class="tab-btn" data-status="fulfilled"     onclick="switchTab(this)">Fulfilled</button>
+    <button class="tab-btn" data-status="cancelled"     onclick="switchTab(this)">Cancelled</button>
+  </div>
+  <div class="orders-list" id="orders-list"><div class="spinner">Loading...</div></div>
+</div>
+
+<!-- ORDER DETAIL -->
+<div class="view hidden" id="view-detail">
+  <div class="top-bar">
+    <button class="top-back" onclick="showList()" title="Back to Orders">&#8592;</button>
+    <div>
+      <div class="top-title" id="d-title">Order</div>
+      <div class="top-sub"   id="d-sub"></div>
+    </div>
+    <div id="d-badge"></div>
+  </div>
+  <div class="detail-scroll">
+    <div class="detail-body" id="detail-body"><div class="spinner">Loading...</div></div>
+  </div>
+  <div class="detail-actions" id="detail-actions"></div>
+</div>
+
+<!-- NEW ORDER (manual entry) -->
+<div class="view hidden" id="view-new-order">
+  <div class="top-bar">
+    <button class="top-back" onclick="showList()" title="Back to Orders">&#8592;</button>
+    <div class="top-title">New Order</div>
+  </div>
+  <div class="detail-scroll">
+    <div class="detail-body">
+      <div class="det-section">
+        <div class="det-section-title">Customer</div>
+        <div class="nf-card">
+          <div class="nf-line"><span class="nf-line-label">First Name</span><input type="text" id="no-first" placeholder="John"/></div>
+          <div class="nf-line"><span class="nf-line-label">Last Name</span><input type="text" id="no-last" placeholder="Smith"/></div>
+          <div class="nf-line"><span class="nf-line-label">Email</span><input type="email" id="no-email" placeholder="customer@email.com" onblur="markFieldValidity(this, this.value.trim()==='' || isValidEmail(this.value.trim()))"/></div>
+          <div class="nf-line"><span class="nf-line-label">Phone</span><input type="tel" id="no-phone" placeholder="(555) 555-5555" inputmode="numeric" maxlength="14" oninput="formatPhoneInput(this)"/></div>
+          <div class="nf-line"><span class="nf-line-label">Pickup Date</span><input type="date" id="no-date"/></div>
+          <div class="nf-line"><span class="nf-line-label">Notes</span><textarea id="no-notes" rows="1" placeholder="Optional"></textarea></div>
+        </div>
+      </div>
+      <div class="det-section" id="no-rows-section" style="display:none;">
+        <div class="det-section-title">Weights &amp; Pricing</div>
+        <div id="no-rows"></div>
+        <div class="totals-card" style="margin-top:6px;">
+          <div class="tot-row tot-grand"><span>Total</span><span id="no-total">--</span></div>
+        </div>
+      </div>
+      <div class="det-section">
+        <div class="det-section-title">Select Cuts</div>
+        <div class="inv-search-wrap">
+          <div class="inv-search-box">
+            <span class="inv-search-icon">🔍</span>
+            <input type="text" class="inv-search" id="no-search" placeholder="Search cuts..." oninput="filterManualInventory(this.value)"/>
+            <button class="inv-search-clear" id="no-search-clear" onclick="clearManualSearch()">✕</button>
+          </div>
+        </div>
+        <div id="no-inventory"><div class="spinner">Loading inventory...</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="selected-bar" id="no-selected-bar">No items selected</div>
+  <div class="detail-actions">
+    <button class="btn-primary" id="no-submit-btn" onclick="submitManualOrder()">Create Order &amp; Send Invoice</button>
+  </div>
+</div>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API='http://localhost:3001/api';
+let adminToken    = sessionStorage.getItem('swa_token')||null;
+let adminUsername = sessionStorage.getItem('swa_user') ||null;
+let currentOrder  = null;
+let currentItems  = [];
+let currentTab    = 'pending_weight';
+let allOrders     = [];
+let isPaid        = false;
+let itemsPrepared = false;
+let manualInventory = [];
+let manualRows = []; // [{rowId, product_id, name, unit, catalogPrice, weight, price}]
+let manualRowSeq = 0;
+let manualSearchQuery = '';
+let manualCollapsedCats = new Set();
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg,type=''){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast '+(type||'');
+  requestAnimationFrame(()=>t.classList.add('show'));
+  setTimeout(()=>t.classList.remove('show'),3000);
+}
+
+// ── Fetch ─────────────────────────────────────────────────────────────────────
+async function api(url,opts={}){
+  const h={'Content-Type':'application/json','x-admin-token':adminToken||'',...(opts.headers||{})};
+  const r=await fetch(url,{...opts,headers:h});
+  if(r.status===401){doLogout();throw new Error('Session expired');}
+  return r;
+}
+
+// ── Views ─────────────────────────────────────────────────────────────────────
+function showView(id){
+  document.querySelectorAll('.view').forEach(v=>v.classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+}
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+async function doLogin(){
+  const btn=document.getElementById('login-btn');
+  const user=document.getElementById('login-user').value.trim();
+  const pass=document.getElementById('login-pass').value;
+  const err=document.getElementById('login-err');
+  if(!user||!pass){err.textContent='Enter username and password.';err.style.display='block';return;}
+  btn.textContent='Signing in...';btn.disabled=true;
+  try{
+    const r=await fetch(API+'/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
+    const d=await r.json();
+    if(!r.ok){err.textContent=d.error||'Login failed.';err.style.display='block';btn.textContent='Sign In';btn.disabled=false;return;}
+    adminToken=d.token;adminUsername=d.username;
+    sessionStorage.setItem('swa_token',d.token);sessionStorage.setItem('swa_user',d.username);
+    document.getElementById('user-label').textContent='👤 '+d.username;
+    err.style.display='none';btn.textContent='Sign In';btn.disabled=false;
+    showView('view-list');loadOrders();startOrdersPolling();
+  }catch(e){err.textContent='Cannot reach server. Check proxy is running.';err.style.display='block';btn.textContent='Sign In';btn.disabled=false;}
+}
+async function doLogout(){
+  await fetch(API+'/admin/logout',{method:'POST',headers:{'x-admin-token':adminToken||''}}).catch(()=>{});
+  adminToken=null;adminUsername=null;
+  sessionStorage.removeItem('swa_token');sessionStorage.removeItem('swa_user');
+  stopOrdersPolling();
+  showView('view-login');
+}
+
+// ── ORDERS LIST ───────────────────────────────────────────────────────────────
+function switchTab(btn){
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');currentTab=btn.dataset.status;renderList();
+}
+async function loadOrders(silent){
+  if(!silent) document.getElementById('orders-list').innerHTML='<div class="spinner">Loading...</div>';
+  try{
+    const r=await api(API+'/admin/orders');if(!r.ok)throw new Error('Failed');
+    const prevCount=allOrders.length;
+    allOrders=await r.json();renderList();
+    if(silent && allOrders.length>prevCount) toast('New order received','success');
+  }catch(e){
+    if(!silent) document.getElementById('orders-list').innerHTML='<div class="empty-state"><div class="empty-icon">⚠️</div><div>'+e.message+'</div></div>';
+  }
+}
+
+// ── Auto-refresh: poll for new orders while the list view is open ──────────────
+let ordersPollTimer=null;
+const ORDERS_POLL_MS=10000;
+function startOrdersPolling(){
+  stopOrdersPolling();
+  ordersPollTimer=setInterval(()=>{
+    if(adminToken && !document.getElementById('view-list').classList.contains('hidden')){
+      loadOrders(true);
+    }
+  },ORDERS_POLL_MS);
+}
+function stopOrdersPolling(){
+  if(ordersPollTimer){clearInterval(ordersPollTimer);ordersPollTimer=null;}
+}
+function renderList(){
+  const list=document.getElementById('orders-list');
+  const rows=allOrders.filter(o=>o.status===currentTab);
+  if(!rows.length){list.innerHTML='<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No orders here</div></div>';return;}
+  list.innerHTML=rows.map(o=>{
+    const date=o.created_at?new Date(o.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+    return`<div class="ord-card" onclick="openOrder('${o.id}')">
+      <div class="ord-card-top">
+        <div><div class="ord-num">${o.order_number||'--'}</div><div class="ord-date">${date}</div></div>
+        <span class="badge badge-${badgeClass(o.status)}">${statusLabel(o.status)}</span>
+      </div>
+      <div class="ord-customer">${o.customer_name||'Unknown'}${sourceTag(o.order_source)}</div>
+      <div class="ord-contact">${[o.customer_phone,o.customer_email].filter(Boolean).join(' · ')}</div>
+      <div class="ord-footer">
+        <span style="font-size:12px;color:var(--text2)">📅 ${o.pickup_date||'No date'}</span>
+        <span style="font-size:20px;color:var(--text3);">›</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+function badgeClass(s){return{pending_weight:'pending',invoiced:'invoiced',paid:'paid',ready:'ready',fulfilled:'fulfilled',cancelled:'cancelled'}[s]||'pending';}
+function statusLabel(s){return{pending_weight:'Needs Weighing',invoiced:'Invoiced',paid:'Paid',ready:'Ready for Pickup',fulfilled:'Fulfilled',cancelled:'Cancelled'}[s]||s||'Unknown';}
+function sourceTag(src){
+  if(src==='manual') return ' <span class="src-tag src-manual">🏬 Walk-in</span>';
+  if(src==='online') return ' <span class="src-tag src-online">🌐 Online</span>';
+  return '';
+}
+
+// ── STATUS PROGRESS ───────────────────────────────────────────────────────────
+function renderProgress(status){
+  const steps=[
+    {key:'pending_weight',label:'Weighed'},
+    {key:'invoiced',label:'Invoiced'},
+    {key:'paid',label:'Paid'},
+    {key:'ready',label:'Ready'},
+    {key:'fulfilled',label:'Done'},
+  ];
+  const order=['pending_weight','invoiced','paid','ready','fulfilled'];
+  const idx=order.indexOf(status);
+  return`<div class="progress-bar">${steps.map((s,i)=>{
+    const cls=i<idx?'done':i===idx?'current':'';
+    return`<div class="prog-step ${cls}">
+      <div class="prog-dot">${i<idx?'✓':(i+1)}</div>
+      <div class="prog-label">${s.label}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+// ── ORDER DETAIL ──────────────────────────────────────────────────────────────
+async function openOrder(id){
+  showView('view-detail');
+  document.getElementById('detail-body').innerHTML='<div class="spinner">Loading...</div>';
+  document.getElementById('detail-actions').innerHTML='';
+  try{
+    const [rO,rI]=await Promise.all([api(API+'/admin/orders/'+id),api(API+'/admin/orders/'+id+'/items')]);
+    currentOrder=await rO.json();
+    currentItems=await rI.json()||[];
+    isPaid=currentOrder.is_paid||false;
+    itemsPrepared=currentOrder.items_prepared||false;
+    renderDetail();
+  }catch(e){document.getElementById('detail-body').innerHTML='<div class="empty-state">'+e.message+'</div>';}
+}
+function showList(){showView('view-list');loadOrders(true);}
+
+// ── NEW ORDER (manual entry) ───────────────────────────────────────────────────
+function isBulkBeefItem(name){ return /quarter|half|whole/i.test(name||''); }
+
+async function openNewOrder(){
+  showView('view-new-order');
+  document.getElementById('no-first').value='';
+  document.getElementById('no-last').value='';
+  const emailEl=document.getElementById('no-email');
+  emailEl.value='';emailEl.style.color='';
+  const phoneEl=document.getElementById('no-phone');
+  phoneEl.value='';phoneEl.style.color='';
+  document.getElementById('no-date').value=new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local timezone
+  document.getElementById('no-notes').value='';
+  document.getElementById('no-search').value='';
+  document.getElementById('no-search-clear').classList.remove('show');
+  manualSearchQuery='';
+  manualCollapsedCats=new Set();
+  manualRows=[];manualRowSeq=0;
+  renderManualRows();
+  const box=document.getElementById('no-inventory');
+  box.innerHTML='<div class="spinner">Loading inventory...</div>';
+  try{
+    const r=await api(API+'/inventory?limit=500');
+    if(!r.ok) throw new Error('Failed to load inventory');
+    manualInventory=await r.json()||[];
+    renderManualInventory();
+  }catch(e){
+    box.innerHTML='<div class="empty-state">'+e.message+'</div>';
+  }
+}
+
+function catKey(cat){ return (cat||'other').toLowerCase().replace(/[^a-z0-9]+/g,'-'); }
+
+function toggleManualCategory(catKeyVal){
+  if(manualCollapsedCats.has(catKeyVal)) manualCollapsedCats.delete(catKeyVal);
+  else manualCollapsedCats.add(catKeyVal);
+  renderManualInventory();
+}
+
+function renderManualInventory(){
+  const box=document.getElementById('no-inventory');
+  if(!manualInventory.length){box.innerHTML='<div class="empty-state">No inventory found.</div>';return;}
+  const CATEGORY_ORDER=['Steaks','Pork','Dairy'];
+  const q=manualSearchQuery.trim().toLowerCase();
+  const filtered=q?manualInventory.filter(p=>(p.product_name||'').toLowerCase().includes(q)):manualInventory;
+  if(!filtered.length){box.innerHTML=`<div class="empty-state"><div class="empty-icon">🔍</div><div>No cuts match "${manualSearchQuery}"</div></div>`;return;}
+
+  // Group by category (not just consecutive) so bulk items (Quarter/Half/Whole Beef)
+  // land inside their own category's section instead of spawning a duplicate header.
+  const byCat={};
+  filtered.forEach(p=>{
+    const cat=p.category||'Other';
+    (byCat[cat]=byCat[cat]||[]).push(p);
+  });
+  const catNames=Object.keys(byCat).sort((a,b)=>{
+    const ai=CATEGORY_ORDER.indexOf(a), bi=CATEGORY_ORDER.indexOf(b);
+    const aRank=ai===-1?CATEGORY_ORDER.length:ai, bRank=bi===-1?CATEGORY_ORDER.length:bi;
+    if(aRank!==bRank) return aRank-bRank;
+    return a.localeCompare(b);
+  });
+  catNames.forEach(cat=>{
+    byCat[cat].sort((a,b)=>{
+      const aBulk=isBulkBeefItem(a.product_name)?1:0, bBulk=isBulkBeefItem(b.product_name)?1:0;
+      if(aBulk!==bBulk) return aBulk-bBulk;
+      return (a.product_name||'').localeCompare(b.product_name||'');
+    });
+  });
+
+  let html='';
+  catNames.forEach(cat=>{
+    const key=catKey(cat);
+    const collapsed=manualCollapsedCats.has(key);
+    html+=`<div class="inv-cat-hdr" onclick="toggleManualCategory('${key}')">
+      <span>${cat} (${byCat[cat].length})</span>
+      <span class="inv-cat-chevron${collapsed?' collapsed':''}">▾</span>
+    </div>
+    <div class="inv-cat-items${collapsed?' collapsed':''}" id="inv-cat-${key}">`;
+    byCat[cat].forEach(p=>{
+      const price=parseFloat(p.price)||0;
+      const unit=p.unit||'/lb';
+      const addedCount=manualRows.filter(r=>String(r.product_id)===String(p.product_id)).length;
+      html+=`<div class="inv-item-row">
+        <div class="inv-item-info">
+          <div class="inv-item-name">${p.product_name}</div>
+          <div class="inv-item-price">${price>0?'$'+price.toFixed(2)+unit:'Call for price'}</div>
+          ${addedCount?`<div class="inv-item-added">${addedCount} added</div>`:''}
+        </div>
+        <button class="add-row-btn" onclick="addManualRow('${p.product_id}')" title="Add a line for ${p.product_name}">+</button>
+      </div>`;
+    });
+    html+='</div>';
+  });
+  box.innerHTML=html;
+}
+
+function filterManualInventory(val){
+  manualSearchQuery=val;
+  document.getElementById('no-search-clear').classList.toggle('show',!!val);
+  renderManualInventory();
+}
+
+function clearManualSearch(){
+  manualSearchQuery='';
+  const input=document.getElementById('no-search');
+  input.value='';
+  document.getElementById('no-search-clear').classList.remove('show');
+  renderManualInventory();
+  input.focus();
+}
+
+function addManualRow(productId){
+  const p=manualInventory.find(x=>String(x.product_id)===String(productId));
+  if(!p){console.warn('addManualRow: no product matched for id',productId);toast('Could not add that item — please try again.','error');return;}
+  const rowId=++manualRowSeq;
+  manualRows.push({rowId,product_id:p.product_id,name:p.product_name,unit:p.unit||'/lb',catalogPrice:parseFloat(p.price)||0,weight:'',price:parseFloat(p.price)||0});
+  renderManualInventory();
+  renderManualRows();
+}
+
+function removeManualRow(rowId){
+  manualRows=manualRows.filter(r=>r.rowId!==rowId);
+  renderManualInventory();
+  renderManualRows();
+}
+
+function updateManualRow(rowId,field,val){
+  const row=manualRows.find(r=>r.rowId===rowId);
+  if(!row) return;
+  row[field]=val;
+  recalcManualTotals();
+}
+
+function renderManualRows(){
+  const section=document.getElementById('no-rows-section');
+  const box=document.getElementById('no-rows');
+  const wasHidden=section.style.display==='none';
+  if(!manualRows.length){
+    section.style.display='none';
+    box.innerHTML='';
+    updateSelectedBar();
+    return;
+  }
+  section.style.display='';
+  if(wasHidden) setTimeout(()=>section.scrollIntoView({behavior:'smooth',block:'start'}),50);
+  box.innerHTML=manualRows.map(row=>`
+    <div class="wt-line" id="no-row-${row.rowId}">
+      <div class="wt-line-name" title="${row.name}">${row.name}</div>
+      <div class="wt-line-field"><input type="number" min="0" step="0.001" placeholder="0.000" value="${row.weight}"
+             oninput="updateManualRow(${row.rowId},'weight',this.value);calcManualLine(${row.rowId})"/></div>
+      <span class="wt-line-sep">lb×</span>
+      <div class="wt-line-field"><input type="number" min="0" step="0.01" placeholder="${row.catalogPrice.toFixed(2)}" value="${row.price||''}"
+             oninput="updateManualRow(${row.rowId},'price',this.value);calcManualLine(${row.rowId})"/></div>
+      <span class="wt-line-sep">=</span>
+      <span class="wt-line-total" id="no-rowtotal-${row.rowId}">${row.weight&&row.price?'$'+(row.weight*row.price).toFixed(2):'--'}</span>
+      <button class="wt-line-remove" onclick="removeManualRow(${row.rowId})" title="Remove">✕</button>
+    </div>`).join('');
+  updateSelectedBar();
+}
+
+function calcManualLine(rowId){
+  const row=manualRows.find(r=>r.rowId===rowId);
+  const el=document.getElementById('no-rowtotal-'+rowId);
+  if(row&&el) el.textContent=(row.weight>0&&row.price>0)?'$'+(row.weight*row.price).toFixed(2):'--';
+  recalcManualTotals();
+}
+
+function recalcManualTotals(){
+  const sub=manualRows.reduce((s,r)=>s+(parseFloat(r.weight)||0)*(parseFloat(r.price)||0),0);
+  const el=document.getElementById('no-total');
+  if(el) el.textContent=sub>0?'$'+sub.toFixed(2):'--';
+  updateSelectedBar();
+}
+
+function updateSelectedBar(){
+  const bar=document.getElementById('no-selected-bar');
+  if(!manualRows.length){bar.textContent='No items selected';return;}
+  const sub=manualRows.reduce((s,r)=>s+(parseFloat(r.weight)||0)*(parseFloat(r.price)||0),0);
+  bar.textContent=manualRows.length+' line'+(manualRows.length!==1?'s':'')+(sub>0?' — $'+sub.toFixed(2)+' total':'');
+}
+
+function markFieldValidity(el, isValid){
+  el.style.color = isValid ? '' : '#DC3545';
+}
+function isValidEmail(v){
+  // Standard-enough email shape check: local@domain.tld — not fully RFC5322,
+  // but catches real typos without being so strict it rejects valid addresses.
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+}
+function isValidPhone(v){
+  const digits=v.replace(/\D/g,'');
+  return digits.length>0 && digits.length<=10;
+}
+function formatPhoneInput(input){
+  // Strip anything non-numeric and hard-cap at 10 digits as the user types.
+  let digits=input.value.replace(/\D/g,'').slice(0,10);
+  let formatted=digits;
+  if(digits.length>6) formatted=`(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+  else if(digits.length>3) formatted=`(${digits.slice(0,3)}) ${digits.slice(3)}`;
+  else if(digits.length>0) formatted=digits;
+  input.value=formatted;
+}
+
+async function submitManualOrder(){
+  const first=document.getElementById('no-first').value.trim();
+  const last =document.getElementById('no-last').value.trim();
+  const email=document.getElementById('no-email').value.trim();
+  const phone=document.getElementById('no-phone').value.trim();
+  const date =document.getElementById('no-date').value;
+  const notes=document.getElementById('no-notes').value.trim();
+
+  if(!first||!email){toast('Enter first name and email.','error');return;}
+  if(!isValidEmail(email)){toast('Enter a valid email address.','error');return;}
+  if(phone && !isValidPhone(phone)){toast('Phone number must be 10 digits or fewer.','error');return;}
+  if(!manualRows.length){toast('Add at least one cut.','error');return;}
+  const missing=manualRows.find(r=>!(parseFloat(r.weight)>0)||!(parseFloat(r.price)>0));
+  if(missing){toast('Enter a weight and price for every line before invoicing.','error');return;}
+
+  const orderNum='ORD-'+Date.now().toString().slice(-6);
+  const orderPayload={
+    order_number:    orderNum,
+    items:           manualRows.map(r=>({name:r.name,qty:1,price_per_unit:r.catalogPrice,unit:r.unit})),
+    subtotal:        0,
+    total:           0,
+    payment_method:  'invoice',
+    amount_tendered: 0,
+    change_due:      0,
+    status:          'pending_weight',
+    customer_name:   first+' '+(last||''),
+    customer_email:  email,
+    customer_phone:  phone||null,
+    pickup_date:     date||null,
+    notes:           notes||null,
+    order_source:    'manual',
+  };
+
+  const btn=document.getElementById('no-submit-btn');
+  btn.textContent='Creating order...';btn.disabled=true;
+  try{
+    // 1. Create the order + unweighted order_items
+    const r=await api(API+'/orders',{method:'POST',body:JSON.stringify(orderPayload)});
+    if(!r.ok){const err=await r.json().catch(()=>({}));throw new Error(err.error||'Failed to create order');}
+    const created=await r.json();
+    const orderId=Array.isArray(created)?created[0]?.id:created?.id;
+    if(!orderId) throw new Error('Order created but no ID returned');
+
+    // 2. Fetch the created line items (inserted in the same order as manualRows)
+    btn.textContent='Saving weights...';
+    const itemsR=await api(API+'/admin/orders/'+orderId+'/items');
+    if(!itemsR.ok) throw new Error('Order created, but could not load its line items to save weights');
+    const createdItems=await itemsR.json()||[];
+
+    // 3. Save the weight/price collected on this form to each line item
+    for(let i=0;i<createdItems.length&&i<manualRows.length;i++){
+      await api(API+'/admin/order-items/'+createdItems[i].id,{
+        method:'PATCH',body:JSON.stringify({weight_lbs:parseFloat(manualRows[i].weight),actual_price_lb:parseFloat(manualRows[i].price)})
+      });
+    }
+
+    // 4. Send the invoice
+    btn.textContent='Sending invoice...';
+    const invR=await api(API+'/admin/orders/'+orderId+'/invoice',{method:'POST',body:JSON.stringify({})});
+    const invD=await invR.json();
+    if(!invR.ok) throw new Error(invD.error||'Order created, but the invoice failed to send. Open it from the Invoiced tab to retry.');
+
+    // 5. Print the invoice to the printer already set up on this device
+    printInvoice({
+      orderNum, first, last, email, phone, date, notes,
+      rows: manualRows.map(r=>({name:r.name,weight:parseFloat(r.weight),price:parseFloat(r.price)})),
+      total: parseFloat(invD.total),
+    });
+
+    // 6. Walk-in customers often pay and take their order on the spot —
+    //    offer to fast-track the order straight to Paid, Ready & Fulfilled.
+    let landingTab='invoiced';
+    if(confirm('Order '+orderNum+' created — invoice sent for $'+invD.total+'.\n\nMark this order as Paid, Ready & Fulfilled now?')){
+      try{
+        await api(API+'/admin/orders/'+orderId+'/status',{method:'PATCH',body:JSON.stringify({is_paid:true,items_prepared:true})});
+        await api(API+'/admin/orders/'+orderId+'/status',{method:'PATCH',body:JSON.stringify({status:'fulfilled'})});
+        toast('Order '+orderNum+' created, paid, and fulfilled — $'+invD.total,'success');
+        landingTab='fulfilled';
+      }catch(e2){
+        toast('Order created and invoiced, but marking it fulfilled failed: '+e2.message,'error');
+      }
+    }else{
+      toast('Order '+orderNum+' created — invoice sent for $'+invD.total,'success');
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.status===landingTab));
+    currentTab=landingTab;
+    showList();
+  }catch(e){toast(e.message,'error');}
+  finally{btn.textContent='Create Order & Send Invoice';btn.disabled=false;}
+}
+
+// ── Print invoice (opens the browser's print dialog so staff can pick their
+//    WiFi printer — same as printing from any other page) ─────────────────────
+function buildPrintableInvoiceHtml(o){
+  const rowsHtml=o.rows.map(r=>`
+    <tr>
+      <td>${r.name}</td>
+      <td style="text-align:center;">${r.weight.toFixed(2)} lb</td>
+      <td style="text-align:center;">$${r.price.toFixed(2)}/lb</td>
+      <td style="text-align:right;">$${(r.weight*r.price).toFixed(2)}</td>
+    </tr>`).join('');
+  const today=new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${o.orderNum}</title>
+  <style>
+    @page{margin:0.6in;}
+    body{font-family:-apple-system,Helvetica,Arial,sans-serif;color:#1A1A1A;margin:0;}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #2D4A1E;padding-bottom:14px;margin-bottom:18px;}
+    .farm{font-size:20px;font-weight:800;color:#2D4A1E;}
+    .farm-sub{font-size:12px;color:#555;margin-top:6px;line-height:1.5;}
+    .order-num{font-size:18px;font-weight:800;color:#2D4A1E;text-align:right;}
+    .order-date{font-size:12px;color:#777;text-align:right;margin-top:2px;}
+    .bill-to{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#777;margin-bottom:6px;}
+    .cust{font-size:14px;font-weight:700;margin-bottom:2px;}
+    .cust-line{font-size:12px;color:#555;margin-bottom:2px;}
+    table{width:100%;border-collapse:collapse;margin-top:18px;}
+    th{background:#2D4A1E;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:9px 10px;text-align:left;}
+    th:nth-child(2),th:nth-child(3){text-align:center;}
+    th:nth-child(4){text-align:right;}
+    td{padding:9px 10px;font-size:13px;border-bottom:1px solid #eee;}
+    .totals{margin-top:14px;display:flex;justify-content:flex-end;}
+    .totals table{width:220px;margin:0;}
+    .totals td{border:none;padding:5px 10px;font-size:13px;}
+    .grand td{border-top:1.5px solid #1A1A1A;font-weight:800;font-size:15px;color:#2D4A1E;}
+    .notes{margin-top:16px;font-size:12px;color:#777;font-style:italic;}
+    .foot{margin-top:28px;padding-top:12px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center;}
+  </style></head>
+  <body>
+    <div class="hdr">
+      <div>
+        <div class="farm">🐄 Stone Wall Angus</div>
+        <div class="farm-sub">17719 Spielman Road, Fairplay, MD 21733<br>(240) 818-8317 &middot; stonewallangus1@myactv.net</div>
+      </div>
+      <div>
+        <div class="order-num">${o.orderNum}</div>
+        <div class="order-date">${today}</div>
+      </div>
+    </div>
+    <div class="bill-to">Bill To</div>
+    <div class="cust">${o.first} ${o.last||''}</div>
+    <div class="cust-line">${o.email}${o.phone?' &middot; '+o.phone:''}</div>
+    <div class="cust-line">Pickup Date: ${o.date||'TBD'}</div>
+    <table>
+      <tr><th>Cut</th><th>Weight</th><th>Rate</th><th>Amount</th></tr>
+      ${rowsHtml}
+    </table>
+    <div class="totals">
+      <table>
+        <tr class="grand"><td>Total Due</td><td style="text-align:right;">$${o.total.toFixed(2)}</td></tr>
+      </table>
+    </div>
+    ${o.notes?`<div class="notes">Notes: ${o.notes}</div>`:''}
+    <div class="foot">Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
+  </body></html>`;
+}
+
+function printInvoice(o){
+  const iframe=document.createElement('iframe');
+  iframe.style.position='fixed';
+  iframe.style.right='0';
+  iframe.style.bottom='0';
+  iframe.style.width='0';
+  iframe.style.height='0';
+  iframe.style.border='0';
+  document.body.appendChild(iframe);
+  iframe.srcdoc=buildPrintableInvoiceHtml(o);
+  iframe.onload=function(){
+    try{
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }catch(e){console.warn('Print failed:',e.message);}
+    setTimeout(()=>iframe.remove(),1000);
+  };
+}
+
+
+
+function renderDetail(){
+  const o=currentOrder;
+  document.getElementById('d-title').textContent=o.order_number||'Order';
+  document.getElementById('d-sub').textContent=o.customer_name||'';
+  document.getElementById('d-badge').innerHTML=`<span class="badge badge-${badgeClass(o.status)}">${statusLabel(o.status)}</span>`;
+
+  let html='';
+
+  // Progress
+  if(!['cancelled'].includes(o.status)) html+=renderProgress(o.status);
+
+  // Customer info
+  html+=`<div class="det-section"><div class="det-section-title">Customer</div>
+  <div class="info-card">
+    <div class="info-row"><span class="info-label">Name</span><span class="info-val">${o.customer_name||'--'}</span></div>
+    <div class="info-row"><span class="info-label">Email</span><span class="info-val" style="font-size:12px;">${o.customer_email||'--'}</span></div>
+    <div class="info-row"><span class="info-label">Phone</span><span class="info-val">${o.customer_phone||'--'}</span></div>
+    <div class="info-row"><span class="info-label">Pickup</span><span class="info-val">${o.pickup_date||'TBD'}</span></div>
+    <div class="info-row"><span class="info-label">Source</span><span class="info-val">${o.order_source==='manual'?'🏬 Walk-in (admin)':o.order_source==='online'?'🌐 Online':'--'}</span></div>
+    ${o.notes?`<div class="info-row"><span class="info-label">Notes</span><span class="info-val" style="font-size:12px;">${o.notes}</span></div>`:''}
+  </div></div>`;
+
+  // Invoice history
+  if(o.invoice_sent_at){
+    html+=`<div class="inv-sent-card">
+      <div class="inv-sent-label">Invoice Sent</div>
+      <div class="inv-sent-row"><span>Date</span><span>${new Date(o.invoice_sent_at).toLocaleString()}</span></div>
+      ${o.final_total?`<div class="inv-sent-row"><span>Total</span><span style="font-weight:700;">$${parseFloat(o.final_total).toFixed(2)}</span></div>`:''}
+      ${o.paid_at?`<div class="inv-sent-row"><span>Paid</span><span>${new Date(o.paid_at).toLocaleString()}</span></div>`:''}
+    </div>`;
+  }
+
+  // Weight entry
+  html+=`<div class="det-section"><div class="det-section-title">Cuts &amp; Weights</div>`;
+  if(!currentItems.length){
+    html+=`<div style="color:var(--text3);font-size:13px;padding:10px 0;">No items found for this order.</div>`;
+  }else{
+    currentItems.forEach(item=>{
+      const isBulk=/quarter|half|whole/i.test(item.product_name||'');
+      const hasWeight=item.weight_lbs>0;
+      const nameLabel=item.product_name+(item.qty_ordered>1?' ×'+item.qty_ordered:'');
+      html+=`<div class="wt-line${hasWeight?' weighed':''}" id="wcard-${item.id}">
+        <div class="wt-line-name" title="${item.product_name}">${nameLabel}</div>
+        <div class="wt-line-field"><input type="number" min="0" step="0.001" placeholder="0.000" id="wlbs-${item.id}" value="${item.weight_lbs||''}" oninput="calcLine('${item.id}')"/></div>
+        <span class="wt-line-sep">lb×</span>
+        <div class="wt-line-field"><input type="number" min="0" step="0.01" placeholder="${parseFloat(item.price_per_unit||0).toFixed(2)}" id="wprice-${item.id}" value="${item.actual_price_lb||item.price_per_unit||''}" oninput="calcLine('${item.id}')"/></div>
+        <span class="wt-line-sep">=</span>
+        <span class="wt-line-total" id="wtotal-${item.id}">${item.line_total?'$'+parseFloat(item.line_total).toFixed(2):'--'}</span>
+      </div>${isBulk?'<div class="wt-line-bulk-note">Bulk item — enter negotiated price per lb</div>':''}`;
+    });
+  }
+  html+=`</div>`;
+
+  // Order total
+  html+=`<div class="det-section"><div class="det-section-title">Order Total</div>
+  <div class="totals-card">
+    <div class="tot-row"><span>Subtotal</span><span id="t-sub">--</span></div>
+    <div class="tot-row"><span>Shipping</span><span style="color:var(--green-lt);font-weight:600;">Free</span></div>
+    <div class="tot-row tot-grand"><span>Total Due</span><span id="t-total">--</span></div>
+  </div></div>`;
+
+  // Ready banner
+  html+=`<div class="ready-banner${isPaid&&itemsPrepared?' show':''}" id="ready-banner">
+    ✓ Both complete — order will be marked Ready for Pickup
+  </div>`;
+
+  // Completion checkboxes
+  const canPay = ['invoiced','paid'].includes(o.status);
+  const canPack = isPaid || o.status==='paid' || o.status==='ready';
+  html+=`<div class="completion-card">
+    <div class="completion-title">Order Completion</div>
+    <div class="cb-row${!canPay?' locked':''}" onclick="${canPay?'toggleCheck(\'paid\')':'showToast(\'Invoice the customer first\')'}">
+      <div class="cb-box${isPaid?' checked':''}" id="cb-paid"><span class="cb-check">✓</span></div>
+      <div class="cb-text">
+        <div class="cb-label">Payment Received</div>
+        <div class="cb-sub">Customer has paid for the order</div>
+        ${!canPay?'<div class="cb-lock-note">Send invoice first to enable</div>':''}
+      </div>
+    </div>
+    <div class="cb-row${!canPack?' locked':''}" onclick="${canPack?'toggleCheck(\'prepared\')':'showToast(\'Mark payment received first\')'}">
+      <div class="cb-box${itemsPrepared?' checked':''}" id="cb-prepared"><span class="cb-check">✓</span></div>
+      <div class="cb-text">
+        <div class="cb-label">Items Packed &amp; Ready</div>
+        <div class="cb-sub">Cuts are weighed, wrapped, and ready</div>
+        ${!canPack?'<div class="cb-lock-note">Mark payment received first</div>':''}
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById('detail-body').innerHTML=html;
+  recalcTotals();
+  renderActions();
+}
+
+function showToast(msg){toast(msg,'error');}
+
+function calcLine(itemId){
+  const lbs  =parseFloat(document.getElementById('wlbs-'+itemId)?.value)||0;
+  const price=parseFloat(document.getElementById('wprice-'+itemId)?.value)||0;
+  const el=document.getElementById('wtotal-'+itemId);
+  if(el) el.textContent=lbs>0&&price>0?'$'+(lbs*price).toFixed(2):'--';
+  recalcTotals();
+}
+
+function recalcTotals(){
+  let sub=0;
+  currentItems.forEach(item=>{
+    const lbs  =parseFloat(document.getElementById('wlbs-'+item.id)?.value)||parseFloat(item.weight_lbs||0);
+    const price=parseFloat(document.getElementById('wprice-'+item.id)?.value)||parseFloat(item.actual_price_lb||item.price_per_unit||0);
+    sub+=lbs*price;
+  });
+  const s=document.getElementById('t-sub');
+  const t=document.getElementById('t-total');
+  if(s) s.textContent=sub>0?'$'+sub.toFixed(2):'--';
+  if(t) t.textContent=sub>0?'$'+sub.toFixed(2):'--';
+}
+
+async function toggleCheck(type){
+  if(type==='paid') isPaid=!isPaid;
+  if(type==='prepared') itemsPrepared=!itemsPrepared;
+
+  // Update UI
+  const cbPaid=document.getElementById('cb-paid');
+  const cbPrep=document.getElementById('cb-prepared');
+  const banner=document.getElementById('ready-banner');
+  if(cbPaid) cbPaid.className='cb-box'+(isPaid?' checked':'');
+  if(cbPrep) cbPrep.className='cb-box'+(itemsPrepared?' checked':'');
+  if(banner) banner.className='ready-banner'+(isPaid&&itemsPrepared?' show':'');
+
+  try{
+    const r=await api(API+'/admin/orders/'+currentOrder.id+'/status',{
+      method:'PATCH',body:JSON.stringify({is_paid:isPaid,items_prepared:itemsPrepared})
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||'Update failed');
+
+    const newStatus=d.status||currentOrder.status;
+    currentOrder.status=newStatus;
+    currentOrder.is_paid=isPaid;
+    currentOrder.items_prepared=itemsPrepared;
+
+    document.getElementById('d-badge').innerHTML=`<span class="badge badge-${badgeClass(newStatus)}">${statusLabel(newStatus)}</span>`;
+
+    if(d.triggered_ready){
+      toast('Order marked Ready for Pickup — customer notified!','success');
+    } else if(isPaid&&type==='paid'){
+      toast('Payment received — order moved to Paid','success');
+    }
+
+    showList();
+  }catch(e){
+    // Revert
+    if(type==='paid') isPaid=!isPaid;
+    if(type==='prepared') itemsPrepared=!itemsPrepared;
+    if(cbPaid) cbPaid.className='cb-box'+(isPaid?' checked':'');
+    if(cbPrep) cbPrep.className='cb-box'+(itemsPrepared?' checked':'');
+    toast(e.message,'error');
+  }
+}
+
+function renderActions(){
+  const o=currentOrder;
+  const canInvoice=['pending_weight','invoiced'].includes(o.status);
+  let html='';
+  if(canInvoice){
+    html+=`<button class="btn-primary" id="btn-invoice" onclick="saveAndInvoice()">📧 Save Weights &amp; Send Invoice</button>`;
+    html+=`<button class="btn-secondary" onclick="saveAllWeights()">Save All Weights</button>`;
+  }
+  if(!['fulfilled','cancelled'].includes(o.status)){
+    html+=`<div class="status-row">`;
+    if(o.status!=='fulfilled') html+=`<button class="btn-status fulfilled" onclick="setStatus('fulfilled')">✓ Mark Fulfilled</button>`;
+    if(o.status!=='cancelled') html+=`<button class="btn-status cancelled" onclick="setStatus('cancelled')">✕ Cancel</button>`;
+    html+=`</div>`;
+  }
+  document.getElementById('detail-actions').innerHTML=html;
+}
+
+async function saveAllWeights(navigateBack){
+  if(navigateBack===undefined) navigateBack=true;
+  let saved=0;
+  for(const item of currentItems){
+    const lbs  =parseFloat(document.getElementById('wlbs-'+item.id)?.value);
+    const price=parseFloat(document.getElementById('wprice-'+item.id)?.value);
+    if(lbs&&price){
+      try{
+        await api(API+'/admin/order-items/'+item.id,{method:'PATCH',body:JSON.stringify({weight_lbs:lbs,actual_price_lb:price})});
+        item.weight_lbs=lbs;item.actual_price_lb=price;item.line_total=lbs*price;item.status='weighed';
+        document.getElementById('wcard-'+item.id)?.classList.add('weighed');
+        saved++;
+      }catch(e){console.warn('Item save failed',item.id,e);}
+    }
+  }
+  recalcTotals();
+  if(saved){toast(saved+' weight'+(saved!==1?'s':'')+' saved','success');if(navigateBack)showList();}
+  else toast('Enter at least one weight and price.','error');
+  return saved;
+}
+
+async function saveAndInvoice(){
+  await saveAllWeights(false);
+  const sub=currentItems.reduce((s,i)=>{
+    const lbs  =parseFloat(document.getElementById('wlbs-'+i.id)?.value)||parseFloat(i.weight_lbs||0);
+    const price=parseFloat(document.getElementById('wprice-'+i.id)?.value)||parseFloat(i.actual_price_lb||i.price_per_unit||0);
+    return s+lbs*price;
+  },0);
+  if(sub===0){toast('Enter weights before sending invoice.','error');return;}
+  const btn=document.getElementById('btn-invoice');
+  if(btn){btn.textContent='Sending...';btn.disabled=true;}
+  try{
+    const r=await api(API+'/admin/orders/'+currentOrder.id+'/invoice',{method:'POST',body:JSON.stringify({})});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||'Failed');
+    toast('Invoice sent — $'+sub.toFixed(2),'success');
+    currentOrder.status='invoiced';
+    showList();
+  }catch(e){toast(e.message,'error');if(btn){btn.textContent='📧 Save Weights & Send Invoice';btn.disabled=false;}}
+}
+
+async function setStatus(s){
+  if(!confirm('Mark order as '+statusLabel(s)+'?'))return;
+  try{
+    const r=await api(API+'/admin/orders/'+currentOrder.id+'/status',{method:'PATCH',body:JSON.stringify({status:s})});
+    if(!r.ok) throw new Error('Failed');
+    currentOrder.status=s;
+    toast('Status updated','success');
+    showList();
+  }catch(e){toast(e.message,'error');}
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+if(adminToken){
+  document.getElementById('user-label').textContent='👤 '+(adminUsername||'admin');
+  showView('view-list');loadOrders();startOrdersPolling();
+}else{
+  showView('view-login');
+}
+</script>
+</body>
+</html>
