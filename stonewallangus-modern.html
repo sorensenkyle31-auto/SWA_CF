@@ -1195,7 +1195,7 @@ async function bookVisit(){
 function toast(msg){const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200);}
 
 /* PROXY */
-const API='http://localhost:3001/api';
+const API='https://swa-backend.swa-sorensen.workers.dev/api';
 async function checkHealth(){
   const db  = document.getElementById('cs-db');
   const sms = document.getElementById('cs-sms');

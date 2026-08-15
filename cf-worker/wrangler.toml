@@ -4,8 +4,8 @@ compatibility_date = "2024-11-01"
 
 # Non-secret config — fine to commit. Secrets (below) are set via `wrangler secret put`.
 [vars]
-TWILIO_FROM   = "+1XXXXXXXXXX"        # your Twilio sending number
-TWILIO_NOTIFY = "+1XXXXXXXXXX"        # farm's number to receive new-order alerts
+TWILIO_FROM   = "+12405913834"        # your Twilio sending number
+TWILIO_NOTIFY = "+18504962449"        # farm's number to receive new-order alerts
 EMAIL_FROM    = "stonewallangus1@myactv.net"
 EMAIL_FARM    = "stonewallangus1@myactv.net"
 ADMIN_USERNAME = "admin"
@@ -15,7 +15,7 @@ ADMIN_USERNAME = "admin"
 # then paste the returned id below.
 [[kv_namespaces]]
 binding = "ADMIN_SESSIONS"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "1b3229f9928f4af88d2599a4b3858ff9"
 
 # Secrets — do NOT put these here. Set them with:
 #   wrangler secret put SUPABASE_URL
