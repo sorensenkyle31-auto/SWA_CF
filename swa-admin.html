@@ -12,7 +12,8 @@ input,button,textarea,select{font-family:inherit;font-size:16px;}
 button{cursor:pointer;border:none;background:none;}
 
 :root{
-  --green:#2D5016;--green-mid:#3D6B1F;--green-lt:#4E8226;
+  --green:#6B1F1F;--green-mid:#8B2A2A;--green-lt:#A8453D;
+  --success:#4E8226;
   --gold:#B8860B;--gold-lt:#C9960F;
   --bg:#F5F2EC;--card:#FFFFFF;--card2:#F9F7F3;
   --border:#DDD8CE;--border2:#EAE6DE;
@@ -31,7 +32,7 @@ button{cursor:pointer;border:none;background:none;}
 #view-login{align-items:center;justify-content:center;padding:32px 24px;background:#F5F2EC;}
 .login-box{width:100%;max-width:360px;}
 .login-brand{text-align:center;margin-bottom:36px;}
-.login-icon{font-size:44px;margin-bottom:10px;}
+.login-icon{width:64px;height:64px;margin:0 auto 10px;display:block;object-fit:contain;}
 .login-title{font-size:22px;font-weight:800;color:var(--green);}
 .login-sub{font-size:11px;color:var(--text3);margin-top:4px;letter-spacing:1.5px;text-transform:uppercase;}
 .login-err{background:#FDF0EE;border:1px solid #E8C4BF;color:var(--red);border-radius:8px;padding:11px 14px;font-size:13px;margin-bottom:14px;display:none;}
@@ -72,7 +73,7 @@ button{cursor:pointer;border:none;background:none;}
 /* ── Badges ────────────────────────────────────────────────────────────────── */
 .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;}
 .badge-pending{background:#FEF3E2;color:var(--amber);border:1px solid #F5D9A8;}
-.badge-invoiced{background:#EAF4E1;color:var(--green-lt);border:1px solid #C3DFA8;}
+.badge-invoiced{background:#EAF4E1;color:var(--success);border:1px solid #C3DFA8;}
 .badge-paid{background:#E8F5E9;color:#2E7D32;border:1px solid #A5D6A7;}
 .badge-ready{background:#E3F2FD;color:var(--blue);border:1px solid #90CAF9;}
 .badge-fulfilled{background:#F3F4F6;color:#6B7280;border:1px solid #D1D5DB;}
@@ -111,7 +112,7 @@ button{cursor:pointer;border:none;background:none;}
 
 /* ── Consolidated single-row weight entry (Needs Weighing + New Order) ──────── */
 .wt-line{display:flex;align-items:center;gap:6px;background:var(--card);border:1.5px solid var(--border2);border-radius:var(--radius);padding:10px 12px;margin-bottom:8px;transition:border-color .2s;}
-.wt-line.weighed{border-color:var(--green-lt);background:#FAFDF7;}
+.wt-line.weighed{border-color:var(--success);background:#FAFDF7;}
 .wt-line-name{flex:1 1 auto;min-width:0;font-size:12.5px;font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .wt-line-field{width:56px;flex-shrink:0;}
 .wt-line-field input{width:100%;padding:7px 5px;background:var(--bg);border:1.5px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;text-align:right;transition:border-color .15s;}
@@ -174,7 +175,7 @@ button{cursor:pointer;border:none;background:none;}
 /* ── Invoice history ───────────────────────────────────────────────────────── */
 .inv-sent-card{background:#EAF4E1;border:1px solid #C3DFA8;border-radius:var(--radius);padding:12px 14px;margin-bottom:14px;}
 .inv-sent-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--green);margin-bottom:6px;}
-.inv-sent-row{display:flex;justify-content:space-between;font-size:13px;color:#2D5016;padding:3px 0;}
+.inv-sent-row{display:flex;justify-content:space-between;font-size:13px;color:#6B1F1F;padding:3px 0;}
 
 /* ── Toast ─────────────────────────────────────────────────────────────────── */
 .toast{position:fixed;bottom:calc(20px + var(--safe-bot));left:50%;transform:translateX(-50%) translateY(16px);background:#1A1A1A;color:#fff;padding:11px 20px;border-radius:30px;font-size:13px;font-weight:600;opacity:0;transition:all .22s;z-index:999;white-space:nowrap;max-width:calc(100vw - 32px);text-align:center;}
@@ -219,7 +220,7 @@ button{cursor:pointer;border:none;background:none;}
 <div class="view" id="view-login">
   <div class="login-box">
     <div class="login-brand">
-      <div class="login-icon">🐄</div>
+      <img class="login-icon" src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus"/>
       <div class="login-title">Stone Wall Angus</div>
       <div class="login-sub">Store Admin</div>
     </div>
@@ -284,13 +285,25 @@ button{cursor:pointer;border:none;background:none;}
     <div class="detail-body">
       <div class="det-section">
         <div class="det-section-title">Customer</div>
+        <button class="btn-primary" id="no-scan-btn" onclick="document.getElementById('no-license-input').click()" style="margin-bottom:12px;background:var(--card);color:var(--green);border:1.5px solid var(--green);">📷 Scan Driver's License</button>
+        <input type="file" id="no-license-input" accept="image/*" capture="environment" style="display:none;" onchange="scanDriversLicense(this)"/>
         <div class="nf-card">
           <div class="nf-line"><span class="nf-line-label">First Name</span><input type="text" id="no-first" placeholder="John"/></div>
           <div class="nf-line"><span class="nf-line-label">Last Name</span><input type="text" id="no-last" placeholder="Smith"/></div>
           <div class="nf-line"><span class="nf-line-label">Email</span><input type="email" id="no-email" placeholder="customer@email.com" onblur="markFieldValidity(this, this.value.trim()==='' || isValidEmail(this.value.trim()))"/></div>
           <div class="nf-line"><span class="nf-line-label">Phone</span><input type="tel" id="no-phone" placeholder="(555) 555-5555" inputmode="numeric" maxlength="14" oninput="formatPhoneInput(this)"/></div>
           <div class="nf-line"><span class="nf-line-label">Pickup Date</span><input type="date" id="no-date"/></div>
+          <div class="nf-line"><span class="nf-line-label">Address</span><input type="text" id="no-address" placeholder="123 Farm Road"/></div>
+          <div class="nf-line"><span class="nf-line-label">City</span><input type="text" id="no-city" placeholder="Fairplay"/></div>
+          <div class="nf-line"><span class="nf-line-label">State</span><input type="text" id="no-state" placeholder="MD" maxlength="2" oninput="this.value=this.value.toUpperCase()"/></div>
+          <div class="nf-line"><span class="nf-line-label">Zip</span><input type="text" id="no-zip" placeholder="21733" maxlength="10" oninput="this.value=this.value.replace(/[^0-9-]/g,'')"/></div>
           <div class="nf-line"><span class="nf-line-label">Notes</span><textarea id="no-notes" rows="1" placeholder="Optional"></textarea></div>
+          <div class="nf-line" style="align-items:flex-start;">
+            <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:11.5px;line-height:1.5;color:var(--text2);">
+              <input type="checkbox" id="no-sms-consent" style="margin-top:2px;width:15px;height:15px;flex-shrink:0;accent-color:var(--green);cursor:pointer;"/>
+              <span>Customer agrees to receive text updates (invoice ready, order ready for pickup). Msg &amp; data rates may apply. Reply STOP to cancel, HELP for help. Optional &mdash; not required to place the order.</span>
+            </label>
+          </div>
         </div>
       </div>
       <div class="det-section" id="no-rows-section" style="display:none;">
@@ -323,7 +336,7 @@ button{cursor:pointer;border:none;background:none;}
 <div class="toast" id="toast"></div>
 
 <script>
-const API='https://swa-backend.swa-sorensen.workers.dev/api';
+const API='https://api.stonewallangus.com/api';
 let adminToken    = sessionStorage.getItem('swa_token')||null;
 let adminUsername = sessionStorage.getItem('swa_user') ||null;
 let currentOrder  = null;
@@ -339,6 +352,14 @@ let manualSearchQuery = '';
 let manualCollapsedCats = new Set();
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
+// Escapes user-controlled text before it's interpolated into innerHTML —
+// customer name/notes/address/etc. come from the public order form, so this
+// prevents a malicious submission from executing script in the admin session.
+function escapeHtml(str){
+  if(str===null||str===undefined) return '';
+  return String(str).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
 function toast(msg,type=''){
   const t=document.getElementById('toast');
   t.textContent=msg; t.className='toast '+(type||'');
@@ -429,8 +450,8 @@ function renderList(){
         <div><div class="ord-num">${o.order_number||'--'}</div><div class="ord-date">${date}</div></div>
         <span class="badge badge-${badgeClass(o.status)}">${statusLabel(o.status)}</span>
       </div>
-      <div class="ord-customer">${o.customer_name||'Unknown'}${sourceTag(o.order_source)}</div>
-      <div class="ord-contact">${[o.customer_phone,o.customer_email].filter(Boolean).join(' · ')}</div>
+      <div class="ord-customer">${escapeHtml(o.customer_name)||'Unknown'}${sourceTag(o.order_source)}</div>
+      <div class="ord-contact">${[o.customer_phone,o.customer_email].map(escapeHtml).filter(Boolean).join(' · ')}</div>
       <div class="ord-footer">
         <span style="font-size:12px;color:var(--text2)">📅 ${o.pickup_date||'No date'}</span>
         <span style="font-size:20px;color:var(--text3);">›</span>
@@ -485,6 +506,42 @@ function showList(){showView('view-list');loadOrders(true);}
 // ── NEW ORDER (manual entry) ───────────────────────────────────────────────────
 function isBulkBeefItem(name){ return /quarter|half|whole/i.test(name||''); }
 
+async function scanDriversLicense(input){
+  const file=input.files?.[0];
+  if(!file) return;
+  const btn=document.getElementById('no-scan-btn');
+  const originalText=btn.textContent;
+  btn.textContent='Scanning…';btn.disabled=true;
+  try{
+    const base64=await new Promise((resolve,reject)=>{
+      const reader=new FileReader();
+      reader.onload=()=>resolve(reader.result.split(',')[1]);
+      reader.onerror=()=>reject(new Error('Could not read the image file.'));
+      reader.readAsDataURL(file);
+    });
+    const r=await api(API+'/admin/scan-license',{method:'POST',body:JSON.stringify({image:base64,mediaType:file.type||'image/jpeg'})});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||'Could not scan the license.');
+
+    const data=d.data||{};
+    if(data.first_name) document.getElementById('no-first').value=data.first_name;
+    if(data.last_name)  document.getElementById('no-last').value=data.last_name;
+    if(data.address)    document.getElementById('no-address').value=data.address;
+    if(data.city)        document.getElementById('no-city').value=data.city;
+    if(data.state)        document.getElementById('no-state').value=data.state.toUpperCase();
+    if(data.zip)          document.getElementById('no-zip').value=data.zip;
+
+    const filledCount=['first_name','last_name','address','city','state','zip'].filter(k=>data[k]).length;
+    if(filledCount>0) toast('Scanned '+filledCount+' field'+(filledCount!==1?'s':'')+' from license — please verify before submitting.','success');
+    else toast('Could not read any fields clearly. Please enter details manually.','error');
+  }catch(e){
+    toast(e.message,'error');
+  }finally{
+    btn.textContent=originalText;btn.disabled=false;
+    input.value=''; // clear the file input so the same photo can be re-selected if needed
+  }
+}
+
 async function openNewOrder(){
   showView('view-new-order');
   document.getElementById('no-first').value='';
@@ -494,7 +551,12 @@ async function openNewOrder(){
   const phoneEl=document.getElementById('no-phone');
   phoneEl.value='';phoneEl.style.color='';
   document.getElementById('no-date').value=new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD, local timezone
+  document.getElementById('no-address').value='';
+  document.getElementById('no-city').value='';
+  document.getElementById('no-state').value='';
+  document.getElementById('no-zip').value='';
   document.getElementById('no-notes').value='';
+  document.getElementById('no-sms-consent').checked=false;
   document.getElementById('no-search').value='';
   document.getElementById('no-search-clear').classList.remove('show');
   manualSearchQuery='';
@@ -690,6 +752,10 @@ async function submitManualOrder(){
   const email=document.getElementById('no-email').value.trim();
   const phone=document.getElementById('no-phone').value.trim();
   const date =document.getElementById('no-date').value;
+  const address=document.getElementById('no-address').value.trim();
+  const city=document.getElementById('no-city').value.trim();
+  const state=document.getElementById('no-state').value.trim();
+  const zip=document.getElementById('no-zip').value.trim();
   const notes=document.getElementById('no-notes').value.trim();
 
   if(!first||!email){toast('Enter first name and email.','error');return;}
@@ -713,8 +779,14 @@ async function submitManualOrder(){
     customer_email:  email,
     customer_phone:  phone||null,
     pickup_date:     date||null,
+    address:         address||null,
+    city:            city||null,
+    state:           state||null,
+    zip:             zip||null,
     notes:           notes||null,
     order_source:    'manual',
+    sms_consent:     document.getElementById('no-sms-consent').checked,
+    sms_consent_at:  document.getElementById('no-sms-consent').checked ? new Date().toISOString() : null,
   };
 
   const btn=document.getElementById('no-submit-btn');
@@ -791,23 +863,23 @@ function buildPrintableInvoiceHtml(o){
   <style>
     @page{margin:0.6in;}
     body{font-family:-apple-system,Helvetica,Arial,sans-serif;color:#1A1A1A;margin:0;}
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #2D4A1E;padding-bottom:14px;margin-bottom:18px;}
-    .farm{font-size:20px;font-weight:800;color:#2D4A1E;}
+    .hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #6B1F1F;padding-bottom:14px;margin-bottom:18px;}
+    .farm{font-size:20px;font-weight:800;color:#6B1F1F;}
     .farm-sub{font-size:12px;color:#555;margin-top:6px;line-height:1.5;}
-    .order-num{font-size:18px;font-weight:800;color:#2D4A1E;text-align:right;}
+    .order-num{font-size:18px;font-weight:800;color:#6B1F1F;text-align:right;}
     .order-date{font-size:12px;color:#777;text-align:right;margin-top:2px;}
     .bill-to{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#777;margin-bottom:6px;}
     .cust{font-size:14px;font-weight:700;margin-bottom:2px;}
     .cust-line{font-size:12px;color:#555;margin-bottom:2px;}
     table{width:100%;border-collapse:collapse;margin-top:18px;}
-    th{background:#2D4A1E;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:9px 10px;text-align:left;}
+    th{background:#6B1F1F;color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:9px 10px;text-align:left;}
     th:nth-child(2),th:nth-child(3){text-align:center;}
     th:nth-child(4){text-align:right;}
     td{padding:9px 10px;font-size:13px;border-bottom:1px solid #eee;}
     .totals{margin-top:14px;display:flex;justify-content:flex-end;}
     .totals table{width:220px;margin:0;}
     .totals td{border:none;padding:5px 10px;font-size:13px;}
-    .grand td{border-top:1.5px solid #1A1A1A;font-weight:800;font-size:15px;color:#2D4A1E;}
+    .grand td{border-top:1.5px solid #1A1A1A;font-weight:800;font-size:15px;color:#6B1F1F;}
     .notes{margin-top:16px;font-size:12px;color:#777;font-style:italic;}
     .foot{margin-top:28px;padding-top:12px;border-top:1px solid #eee;font-size:11px;color:#999;text-align:center;}
   </style></head>
@@ -835,7 +907,7 @@ function buildPrintableInvoiceHtml(o){
         <tr class="grand"><td>Total Due</td><td style="text-align:right;">$${o.total.toFixed(2)}</td></tr>
       </table>
     </div>
-    ${o.notes?`<div class="notes">Notes: ${o.notes}</div>`:''}
+    ${o.notes?`<div class="notes">Notes: ${escapeHtml(o.notes)}</div>`:''}
     <div class="foot">Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
   </body></html>`;
 }
@@ -875,12 +947,15 @@ function renderDetail(){
   // Customer info
   html+=`<div class="det-section"><div class="det-section-title">Customer</div>
   <div class="info-card">
-    <div class="info-row"><span class="info-label">Name</span><span class="info-val">${o.customer_name||'--'}</span></div>
-    <div class="info-row"><span class="info-label">Email</span><span class="info-val" style="font-size:12px;">${o.customer_email||'--'}</span></div>
-    <div class="info-row"><span class="info-label">Phone</span><span class="info-val">${o.customer_phone||'--'}</span></div>
+    <div class="info-row"><span class="info-label">Name</span><span class="info-val">${escapeHtml(o.customer_name)||'--'}</span></div>
+    <div class="info-row"><span class="info-label">Email</span><span class="info-val" style="font-size:12px;">${escapeHtml(o.customer_email)||'--'}</span></div>
+    <div class="info-row"><span class="info-label">Phone</span><span class="info-val">${escapeHtml(o.customer_phone)||'--'}</span></div>
     <div class="info-row"><span class="info-label">Pickup</span><span class="info-val">${o.pickup_date||'TBD'}</span></div>
+    ${(o.address||o.city||o.state||o.zip)?`<div class="info-row"><span class="info-label">Address</span><span class="info-val" style="text-align:right;">${[o.address,[o.city,o.state].filter(Boolean).join(', '),o.zip].map(escapeHtml).filter(Boolean).join('<br>')}</span></div>`:''}
     <div class="info-row"><span class="info-label">Source</span><span class="info-val">${o.order_source==='manual'?'🏬 Walk-in (admin)':o.order_source==='online'?'🌐 Online':'--'}</span></div>
-    ${o.notes?`<div class="info-row"><span class="info-label">Notes</span><span class="info-val" style="font-size:12px;">${o.notes}</span></div>`:''}
+    <div class="info-row"><span class="info-label">SMS Opt-in</span><span class="info-val">${o.sms_consent?'✅ Yes':'❌ No'}</span></div>
+    ${o.paypal_invoice_number?`<div class="info-row"><span class="info-label">PayPal Invoice</span><span class="info-val">${o.paypal_invoice_number}</span></div>`:''}
+    ${o.notes?`<div class="info-row"><span class="info-label">Notes</span><span class="info-val" style="font-size:12px;">${escapeHtml(o.notes)}</span></div>`:''}
   </div></div>`;
 
   // Invoice history
@@ -1023,10 +1098,13 @@ async function toggleCheck(type){
 
 function renderActions(){
   const o=currentOrder;
-  const canInvoice=['pending_weight','invoiced'].includes(o.status);
+  const canInvoice=o.status==='pending_weight';
+  const canEditWeights=['pending_weight','invoiced'].includes(o.status);
   let html='';
   if(canInvoice){
     html+=`<button class="btn-primary" id="btn-invoice" onclick="saveAndInvoice()">📧 Save Weights &amp; Send Invoice</button>`;
+  }
+  if(canEditWeights){
     html+=`<button class="btn-secondary" onclick="saveAllWeights()">Save All Weights</button>`;
   }
   if(!['fulfilled','cancelled'].includes(o.status)){

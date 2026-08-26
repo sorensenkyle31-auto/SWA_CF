@@ -6,16 +6,24 @@ compatibility_date = "2024-11-01"
 [vars]
 TWILIO_FROM   = "+12405913834"        # your Twilio sending number
 TWILIO_NOTIFY = "+18504962449"        # farm's number to receive new-order alerts
-EMAIL_FROM    = "stonewallangus1@myactv.net"
+EMAIL_FROM    = "orders@stonewallangus.com"  # now verified with Resend
 EMAIL_FARM    = "stonewallangus1@myactv.net"
 ADMIN_USERNAME = "admin"
+GOOGLE_REVIEW_URL = "https://g.page/r/CSmYIWx9gpa4EBM/review"  # get this from your Google Business Profile once verified
+FACEBOOK_URL = "https://www.facebook.com/stonewallangus/reviews"
+PAYPAL_ENV = "live"
+PUBLIC_API_URL = "https://api.stonewallangus.com"
 
 # KV namespace for admin login sessions (replaces the old in-memory Map).
-# Create with: wrangler kv:namespace create ADMIN_SESSIONS
-# then paste the returned id below.
 [[kv_namespaces]]
 binding = "ADMIN_SESSIONS"
 id = "1b3229f9928f4af88d2599a4b3858ff9"
+
+#Cron Job
+[triggers]
+crons = ["*/5 * * * *"]
+
+
 
 # Secrets — do NOT put these here. Set them with:
 #   wrangler secret put SUPABASE_URL
@@ -23,3 +31,15 @@ id = "1b3229f9928f4af88d2599a4b3858ff9"
 #   wrangler secret put ADMIN_PASSWORD
 #   wrangler secret put TWILIO_ACCOUNT_SID
 #   wrangler secret put TWILIO_AUTH_TOKEN
+#   wrangler secret put RESEND_API_KEY
+#     ^ Get this from resend.com after signing up (free tier: 100 emails/day).
+#       Without verifying your own domain there, you can only send FROM
+#       onboarding@resend.dev and only TO the email address you signed up
+#       with — fine for private testing (place test orders using that same
+#       email), but you'll need to verify a real domain before real launch.
+#   wrangler secret put GATE_SECRET
+#     ^ Cloudflare Access can't protect a *.workers.dev domain directly (only
+#       domains from a zone you own), so this shared secret substitutes for
+#       that on the API layer. Pick any long random string, set it here, and
+#       put the SAME value in the GATE_SECRET constant in both
+#       stonewallangus-modern.html and swa-admin.html.
