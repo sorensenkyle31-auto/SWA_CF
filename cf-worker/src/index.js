@@ -1031,7 +1031,60 @@ app.post('/api/admin/scan-license', requireAdmin, async (c) => {
   }
 });
 
-// ── Scheduled: send review requests ~30+ minutes after an order is fulfilled ───
+// ── Wholesale invoice scanner (AI vision extraction of multiple line items) ────
+// Same no-storage pattern as the license scanner — the photo is forwarded to
+// Claude for one-shot extraction and never saved anywhere.
+app.post('/api/admin/scan-wholesale-invoice', requireAdmin, async (c) => {
+  try {
+    const { image, mediaType } = await c.req.json();
+    if (!image) return c.json({ error: 'No image provided' }, 400);
+    if (!c.env.ANTHROPIC_API_KEY) return c.json({ error: 'Invoice scanning is not set up yet (missing API key).' }, 500);
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': c.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType || 'image/jpeg', data: image } },
+            { type: 'text', text: "This is a photo of a wholesale meat invoice. Extract every line item and return ONLY a JSON object with this exact shape, no markdown, no explanation, no other text:\n" +
+              '{"line_items":[{"pieces":number|null,"description":"string","weight_lbs":number|null,"wholesale_price_per_lb":number|null,"total_amount":number|null}]}\n' +
+              'The columns on the invoice are: Pieces, Description, Weight, Price (wholesale, per lb), Total Amount. Extract every row exactly as printed — do not skip any, do not invent values. Use null for any individual field you cannot read clearly, but still include that line item with whatever fields ARE readable. Do not include the invoice header, totals row, or any summary rows as a line item.' },
+          ],
+        }],
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('  Wholesale invoice scan API error:', res.status, errText);
+      return c.json({ error: 'Could not process the image. Please try again or enter items manually.' }, 500);
+    }
+
+    const data = await res.json();
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    if (!textBlock) return c.json({ error: 'No data extracted. Please try again.' }, 500);
+
+    let extracted;
+    try {
+      const cleaned = textBlock.text.replace(/```json|```/g, '').trim();
+      extracted = JSON.parse(cleaned);
+    } catch(e) {
+      return c.json({ error: 'Could not read the invoice clearly. Please try again or enter items manually.' }, 500);
+    }
+
+    return c.json({ success: true, line_items: extracted.line_items || [] });
+  } catch(e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
 // Runs on whatever interval is set in wrangler.toml's [triggers] crons (e.g.
 // every 5 minutes). Each run picks up any order that crossed the 30-minute mark
 // since its last check and hasn't had a review request sent yet.

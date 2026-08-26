@@ -245,6 +245,7 @@ button{cursor:pointer;border:none;background:none;}
   </div>
   <div class="top-bar" style="padding-top:12px;">
     <div class="top-title">Orders</div>
+    <button class="top-action" onclick="openScanInvoice()" style="margin-right:6px;">📷 Scan Invoice</button>
     <button class="top-action" onclick="openNewOrder()" style="margin-right:6px;">+ New</button>
     <button class="top-action" onclick="loadOrders()">↻ Refresh</button>
   </div>
@@ -329,6 +330,27 @@ button{cursor:pointer;border:none;background:none;}
   <div class="selected-bar" id="no-selected-bar">No items selected</div>
   <div class="detail-actions">
     <button class="btn-primary" id="no-submit-btn" onclick="submitManualOrder()">Create Order &amp; Send Invoice</button>
+  </div>
+</div>
+
+<!-- SCAN WHOLESALE INVOICE -->
+<div class="view hidden" id="view-scan-invoice">
+  <div class="top-bar">
+    <button class="top-back" onclick="showList()" title="Back to Orders">&#8592;</button>
+    <div class="top-title">Scan Wholesale Invoice</div>
+  </div>
+  <div class="detail-scroll">
+    <div class="detail-body" id="scan-invoice-body">
+      <div class="det-section">
+        <button class="btn-primary" id="scan-inv-btn" onclick="document.getElementById('scan-inv-input').click()">📷 Take or Choose Photo</button>
+        <input type="file" id="scan-inv-input" accept="image/*" capture="environment" style="display:none;" onchange="scanWholesaleInvoice(this)"/>
+        <p style="font-size:12px;color:var(--text3);margin-top:10px;">Photograph the invoice as flat and well-lit as possible. You'll be able to review and correct every line before anything updates.</p>
+      </div>
+      <div id="scan-inv-results"></div>
+    </div>
+  </div>
+  <div class="detail-actions" id="scan-inv-actions" style="display:none;">
+    <button class="btn-primary" id="scan-inv-confirm-btn" onclick="confirmWholesaleInvoice()">Apply to Inventory</button>
   </div>
 </div>
 
@@ -505,6 +527,139 @@ function showList(){showView('view-list');loadOrders(true);}
 
 // ── NEW ORDER (manual entry) ───────────────────────────────────────────────────
 function isBulkBeefItem(name){ return /quarter|half|whole/i.test(name||''); }
+
+// ── Wholesale invoice scanner ────────────────────────────────────────────────
+let scannedLineItems = [];
+
+async function openScanInvoice(){
+  scannedLineItems = [];
+  document.getElementById('scan-inv-results').innerHTML = '';
+  document.getElementById('scan-inv-actions').style.display = 'none';
+  document.getElementById('scan-inv-input').value = '';
+  if(!manualInventory.length){
+    try{
+      const r = await api(API+'/inventory?limit=500');
+      if(r.ok) manualInventory = await r.json() || [];
+    }catch(e){ /* dropdown will just be empty if this fails, non-fatal */ }
+  }
+  showView('view-scan-invoice');
+}
+
+async function scanWholesaleInvoice(input){
+  const file = input.files?.[0];
+  if(!file) return;
+  const btn = document.getElementById('scan-inv-btn');
+  const originalText = btn.textContent;
+  btn.textContent = 'Scanning…'; btn.disabled = true;
+  try{
+    const base64 = await new Promise((resolve,reject)=>{
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = () => reject(new Error('Could not read the image file.'));
+      reader.readAsDataURL(file);
+    });
+    const r = await api(API+'/admin/scan-wholesale-invoice', {method:'POST', body: JSON.stringify({image:base64, mediaType:file.type||'image/jpeg'})});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || 'Could not scan the invoice.');
+
+    scannedLineItems = (d.line_items||[]).map((li,idx)=>({
+      rowId: idx,
+      pieces: li.pieces,
+      description: li.description||'',
+      weight_lbs: li.weight_lbs,
+      wholesale_price_per_lb: li.wholesale_price_per_lb,
+      total_amount: li.total_amount,
+      matched_product_id: null,
+      skip: false,
+    }));
+    renderScanResults();
+    if(scannedLineItems.length) toast('Scanned '+scannedLineItems.length+' line item'+(scannedLineItems.length!==1?'s':'')+' — please review and match each before applying.','success');
+    else toast('No line items were found. Try a clearer photo, or add items manually.','error');
+  }catch(e){
+    toast(e.message,'error');
+  }finally{
+    btn.textContent = originalText; btn.disabled = false;
+    input.value = '';
+  }
+}
+
+function renderScanResults(){
+  const box = document.getElementById('scan-inv-results');
+  const actions = document.getElementById('scan-inv-actions');
+  if(!scannedLineItems.length){ box.innerHTML=''; actions.style.display='none'; return; }
+
+  const productOptions = manualInventory
+    .slice()
+    .sort((a,b)=>(a.product_name||'').localeCompare(b.product_name||''))
+    .map(p=>`<option value="${p.product_id}">${escapeHtml(p.product_name)} (current stock: ${p.stock??0})</option>`)
+    .join('');
+
+  box.innerHTML = `<div class="det-section"><div class="det-section-title">Review Line Items</div>` +
+    scannedLineItems.map(li => `
+      <div class="nf-card" style="margin-bottom:10px;${li.skip?'opacity:.5;':''}">
+        <div class="nf-line"><span class="nf-line-label">Invoice text</span><span style="font-size:12px;color:var(--text3);">${escapeHtml(li.description)||'(unreadable)'}</span></div>
+        <div class="nf-line"><span class="nf-line-label">Match to product</span>
+          <select onchange="updateScanRow(${li.rowId},'matched_product_id',this.value)" style="flex:1;">
+            <option value="">— Select a product —</option>
+            ${productOptions}
+          </select>
+        </div>
+        <div class="nf-line"><span class="nf-line-label">Pieces</span><input type="number" value="${li.pieces??''}" onchange="updateScanRow(${li.rowId},'pieces',this.value)"/></div>
+        <div class="nf-line"><span class="nf-line-label">Weight (lbs)</span><input type="number" step="0.01" value="${li.weight_lbs??''}" onchange="updateScanRow(${li.rowId},'weight_lbs',this.value)"/></div>
+        <div class="nf-line"><span class="nf-line-label">Wholesale $/lb</span><input type="number" step="0.01" value="${li.wholesale_price_per_lb??''}" onchange="updateScanRow(${li.rowId},'wholesale_price_per_lb',this.value)"/></div>
+        <div class="nf-line"><span class="nf-line-label">Total Amount</span><input type="number" step="0.01" value="${li.total_amount??''}" onchange="updateScanRow(${li.rowId},'total_amount',this.value)"/></div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-top:8px;cursor:pointer;">
+          <input type="checkbox" ${li.skip?'checked':''} onchange="updateScanRow(${li.rowId},'skip',this.checked)"/> Skip this line (don't apply to inventory)
+        </label>
+      </div>`).join('') +
+    `</div>`;
+  actions.style.display = 'flex';
+}
+
+function updateScanRow(rowId, field, value){
+  const row = scannedLineItems.find(li=>li.rowId===rowId);
+  if(!row) return;
+  if(field==='skip') row[field] = value;
+  else if(field==='matched_product_id' || field==='description') row[field] = value;
+  else row[field] = value===''? null : parseFloat(value);
+}
+
+async function confirmWholesaleInvoice(){
+  const toApply = scannedLineItems.filter(li=>!li.skip);
+  const unmatched = toApply.filter(li=>!li.matched_product_id);
+  if(unmatched.length){
+    toast(unmatched.length+' line item(s) still need a product match, or check "Skip" for lines you don\'t want to apply.','error');
+    return;
+  }
+  if(!toApply.length){ toast('Nothing to apply — all lines are skipped.','error'); return; }
+
+  const btn = document.getElementById('scan-inv-confirm-btn');
+  btn.textContent = 'Applying…'; btn.disabled = true;
+  let successCount = 0, failCount = 0;
+  for(const li of toApply){
+    try{
+      const product = manualInventory.find(p=>String(p.product_id)===String(li.matched_product_id));
+      const currentStock = parseFloat(product?.stock)||0;
+      const receivedQty = li.weight_lbs!=null ? li.weight_lbs : (li.pieces||0);
+      const newStock = currentStock + receivedQty;
+      const patchBody = { stock: newStock };
+      if(li.wholesale_price_per_lb!=null) patchBody.wholesale_cost = li.wholesale_price_per_lb;
+      const r = await api(API+'/inventory/'+li.matched_product_id, {method:'PATCH', body: JSON.stringify(patchBody)});
+      if(r.ok){ successCount++; if(product) product.stock = newStock; }
+      else failCount++;
+    }catch(e){ failCount++; }
+  }
+  btn.textContent = 'Apply to Inventory'; btn.disabled = false;
+
+  if(failCount===0){
+    toast('Inventory updated — '+successCount+' item(s) applied successfully.','success');
+    scannedLineItems = [];
+    renderScanResults();
+    document.getElementById('scan-inv-input').value='';
+  } else {
+    toast(successCount+' applied, '+failCount+' failed — please check and retry those.','error');
+  }
+}
 
 async function scanDriversLicense(input){
   const file=input.files?.[0];
