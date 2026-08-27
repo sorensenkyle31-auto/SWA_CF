@@ -44,6 +44,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;background:var(--green);bord
 .nav-links a:hover{background:rgba(255,255,255,.12);color:#fff;}
 .nav-fb{display:flex;align-items:center;padding:8px 10px !important;color:rgba(255,255,255,.7) !important;}
 .nav-fb:hover{color:#fff !important;background:rgba(255,255,255,.12) !important;}
+.nav-google{display:flex;align-items:center;padding:8px 10px !important;color:rgba(255,255,255,.7) !important;}
+.nav-google:hover{color:#fff !important;background:rgba(255,255,255,.12) !important;}
 .nav-cta{background:var(--gold)!important;color:var(--black)!important;}
 .nav-cta:hover{background:var(--gold-lt)!important;}
 .burger{display:none;flex-direction:column;gap:5px;background:none;border:none;cursor:pointer;padding:8px;}
@@ -596,6 +598,7 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
     <li><a href="#about">Our Story</a></li>
     <li><a href="#shop">Order Online</a></li>
     <li><a href="https://www.facebook.com/stonewallangus" target="_blank" rel="noopener" class="nav-fb" aria-label="Facebook"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.413c0-3.025 1.791-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.265h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg></a></li>
+    <li><a href="https://g.page/r/CSmYIWx9gpa4EBM/review" target="_blank" rel="noopener" class="nav-google" aria-label="Leave us a Google Review"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01L12 2z"/></svg></a></li>
     <li><a href="#visit" class="nav-cta">Book a Visit</a></li>
   </ul>
   <button class="burger" id="burger" onclick="toggleMenu()"><span></span><span></span><span></span></button>
@@ -605,6 +608,7 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
   <a href="#shop" onclick="closeMenu()">Order Online</a>
   <a href="#visit" onclick="closeMenu()">Book a Visit</a>
   <a href="https://www.facebook.com/stonewallangus" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.413c0-3.025 1.791-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.265h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>Facebook</a>
+  <a href="https://g.page/r/CSmYIWx9gpa4EBM/review" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:10px;"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01L12 2z"/></svg>Google Reviews</a>
 </div>
 
 <!-- HERO -->
@@ -893,7 +897,7 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
     </div>
     <div><div class="fch">Shop</div><ul class="fnav"><li><a href="#shop">Beef Cuts</a></li><li><a href="#shop">Quarter Beef</a></li><li><a href="#shop">Half Beef</a></li><li><a href="#shop">Beef Bones</a></li></ul></div>
     <div><div class="fch">Visit</div><ul class="fnav"><li><a href="#visit">Book Appointment</a></li><li><a href="#visit">Store Hours</a></li><li><a href="#visit">Directions</a></li><li><a href="#about">Our Story</a></li></ul></div>
-    <div><div class="fch">Contact</div><ul class="fnav"><li><a href="tel:2408188317">(240) 818-8317</a></li><li><a href="mailto:stonewallangus1@myactv.net">Email Us</a></li><li><a href="https://www.facebook.com/stonewallangus" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.413c0-3.025 1.791-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.265h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>Facebook</a></li><li><a href="#pos">Farm POS</a></li></ul></div>
+    <div><div class="fch">Contact</div><ul class="fnav"><li><a href="tel:2408188317">(240) 818-8317</a></li><li><a href="mailto:stonewallangus1@myactv.net">Email Us</a></li><li><a href="https://www.facebook.com/stonewallangus" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.413c0-3.025 1.791-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.265h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>Facebook</a></li><li><a href="https://g.page/r/CSmYIWx9gpa4EBM/review" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01L12 2z"/></svg>Google Reviews</a></li><li><a href="#pos">Farm POS</a></li></ul></div>
   </div>
   <div class="fbot"><span>© 2025 Stone Wall Angus, LLC — Fairplay, Maryland</span><span>17719 Spielman Rd, Fairplay, MD 21733</span></div>
   <div class="fbot" style="margin-top:8px;"><span><a href="https://swa-legal.pages.dev/privacy" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">Privacy Policy &amp; SMS Terms</a> &middot; <a href="https://swa-legal.pages.dev/terms" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">Terms &amp; Conditions</a></span></div>

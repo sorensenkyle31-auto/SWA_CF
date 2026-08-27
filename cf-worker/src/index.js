@@ -455,6 +455,47 @@ function buildWalkInReceiptEmailHtml(order, items, total) {
 </body></html>`;
 }
 
+// ── Payment received confirmation (fires when a customer pays via the /pay
+//    page — distinct from the later "Ready for Pickup" notice, which still
+//    only fires once staff mark items as prepared) ─────────────────────────
+function buildPaymentReceivedEmailHtml(order, amount) {
+  const firstName = (order.customer_name||'').split(' ')[0] || 'there';
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment Received — Stone Wall Angus</title></head>
+<body style="margin:0;padding:0;background-color:#F4F1EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4F1EA;padding:32px 16px;">
+  <tr><td align="center">
+    <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#FFFFFF;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);">
+      <tr><td style="padding:32px 32px 8px;text-align:center;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:19px;font-weight:800;color:#6B1F1F;"><img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> Stone Wall Angus</div>
+      </td></tr>
+      <tr><td style="padding:16px 32px 8px;text-align:center;">
+        <div style="font-size:34px;margin-bottom:8px;">✅</div>
+        <div style="font-size:20px;font-weight:800;color:#1A1A1A;margin-bottom:10px;">Payment Received, ${firstName}!</div>
+        <div style="font-size:14px;color:#6B6B6B;line-height:1.6;max-width:440px;margin:0 auto;">We've received your payment of $${amount.toFixed(2)} for order ${order.order_number}. Your beef is paid in full — we'll text/email you again once it's weighed, packed, and ready for pickup.</div>
+      </td></tr>
+      <tr><td style="padding:20px 32px;background-color:#F9F7F2;border-top:1px solid #EAE6DE;margin-top:20px;">
+        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions? Reply to this email or call (240) 818-8317.<br>Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+}
+
+async function sendPaymentReceivedNotification(env, order, amount) {
+  const firstName = (order.customer_name||'').split(' ')[0] || 'Customer';
+  const emailText = `Hi ${firstName},\n\nWe've received your payment of $${amount.toFixed(2)} for order ${order.order_number}. Paid in full — we'll notify you again once it's ready for pickup.\n\nStone Wall Angus\n(240) 818-8317`;
+  const emailHtml = buildPaymentReceivedEmailHtml(order, amount);
+  await sendEmail(env, order.customer_email, `Payment Received - Stone Wall Angus ${order.order_number}`, emailText, emailHtml);
+
+  if (order.sms_consent) {
+    const sms = `Payment received! Order ${order.order_number} is paid in full ($${amount.toFixed(2)}). We'll text you again once it's ready for pickup.\nQuestions? (240) 818-8317`;
+    await sendSMS(env, fmtPhone(order.customer_phone), sms);
+  }
+}
+
 async function sendWalkInReceipt(env, order) {
   let items = [];
   try { const r = await sb(env, 'GET','order_items',null,`?order_id=eq.${order.id}&order=id.asc`); items = r.data || []; }
@@ -528,7 +569,7 @@ function buildReviewRequestEmailHtml(order, googleUrl, facebookUrl) {
 }
 
 async function sendReviewRequest(env, order) {
-  const googleUrl = env.GOOGLE_REVIEW_URL || 'https://g.page/r/REPLACE_WITH_YOUR_GOOGLE_REVIEW_LINK/review';
+  const googleUrl = env.GOOGLE_REVIEW_URL || 'https://g.page/r/CSmYIWx9gpa4EBM/review';
   const facebookUrl = env.FACEBOOK_URL || 'https://www.facebook.com/stonewallangus/reviews';
   const firstName = (order.customer_name||'').split(' ')[0] || 'there';
 
@@ -798,6 +839,16 @@ app.post('/api/paypal/capture-order/:orderId', async (c) => {
     const order = orders?.[0];
     if (order) {
       await sb(c.env, 'PATCH','orders',{is_paid:true,paid_at:new Date().toISOString(),status: order.status==='invoiced'?'paid':order.status},`?id=eq.${order.id}`);
+      // Notification failures must never affect the customer-facing response —
+      // the payment and DB update above already succeeded by this point, so a
+      // problem sending the confirmation email/SMS shouldn't report as a
+      // payment failure. Isolated in its own try/catch for that reason.
+      const paidAmount = parseFloat(data?.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value || order.final_total || 0);
+      try {
+        c.executionCtx.waitUntil(sendPaymentReceivedNotification(c.env, order, paidAmount));
+      } catch(notifyErr) {
+        console.error('  Payment received notification failed (payment itself succeeded fine):', notifyErr.message);
+      }
     }
     return c.json({ success: true, status: data.status });
   } catch(e) {
