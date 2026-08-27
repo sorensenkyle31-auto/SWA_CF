@@ -692,7 +692,7 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
             </div>
             <div class="ord-field-row">
               <div class="ord-field"><label>Phone</label><input type="tel" id="ord-phone" placeholder="2405550100" maxlength="10" oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)"/></div>
-              <div class="ord-field"><label>Pickup Date</label><input type="date" id="ord-date"/></div>
+              <div class="ord-field"><label>Pickup Date</label><input type="date" id="ord-date" onchange="validatePickupDate(this)"/><div style="font-size:11px;color:var(--text3,#888);margin-top:3px;">Available Wednesdays &amp; Saturdays only</div><div id="ord-date-err" style="display:none;color:#C0392B;font-size:12px;margin-top:4px;">Pickup is only available Wednesdays and Saturdays — please choose one of those days.</div></div>
             </div>
             <div class="ord-field">
               <label>Address</label><input type="text" id="ord-address" placeholder="123 Farm Road"/>
@@ -855,24 +855,17 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
           <div class="fr"><label>Phone Number</label><input type="tel" id="bf-phone" placeholder="2405550100" maxlength="10" pattern="[0-9]{10}" oninput="this.value=this.value.replace(/\D/g,'').slice(0,10)"/></div>
           <div class="fr"><label>Visit Type</label><select id="bf-type"><option value="">Select a visit type…</option><option>Farm Store Pickup</option><option>Farm Tour</option><option>Quarter / Half Consultation</option><option>General Visit</option></select></div>
           <div class="fg2">
-            <div class="fr"><label>Preferred Date</label><input type="date" id="bf-date"/></div>
+            <div class="fr"><label>Preferred Date</label><input type="date" id="bf-date" onchange="validateVisitDate(this)"/><div style="font-size:11px;color:var(--text3,#888);margin-top:3px;">Visits available Wednesdays &amp; Saturdays, 8–10 AM</div><div id="bf-date-err" style="display:none;color:#C0392B;font-size:12px;margin-top:4px;">Visits are only available Wednesdays and Saturdays — please choose one of those days.</div></div>
             <div class="fr"><label>Party Size</label><select id="bf-party"><option>1 person</option><option>2 people</option><option>3–4 people</option><option>5+ people</option></select></div>
           </div>
           <div class="fr">
             <label>Select a Time</label>
             <div class="tgrid">
+              <div class="tslot" onclick="pickTime(this)">8:00 AM</div>
+              <div class="tslot" onclick="pickTime(this)">8:30 AM</div>
               <div class="tslot" onclick="pickTime(this)">9:00 AM</div>
               <div class="tslot" onclick="pickTime(this)">9:30 AM</div>
-              <div class="tslot na">10:00 AM</div>
-              <div class="tslot" onclick="pickTime(this)">10:30 AM</div>
-              <div class="tslot" onclick="pickTime(this)">11:00 AM</div>
-              <div class="tslot na">11:30 AM</div>
-              <div class="tslot" onclick="pickTime(this)">12:00 PM</div>
-              <div class="tslot" onclick="pickTime(this)">12:30 PM</div>
-              <div class="tslot" onclick="pickTime(this)">1:00 PM</div>
-              <div class="tslot" onclick="pickTime(this)">1:30 PM</div>
-              <div class="tslot na">2:00 PM</div>
-              <div class="tslot na">2:30 PM</div>
+              <div class="tslot" onclick="pickTime(this)">10:00 AM</div>
             </div>
           </div>
           <div class="fr"><label>Notes (optional)</label><textarea id="bf-notes" placeholder="Specific cuts you're looking for, questions, etc."></textarea></div>
@@ -1110,12 +1103,28 @@ function clearOnlineOrder(){
 }
 
 
+function validatePickupDate(input){
+  const errEl = document.getElementById('ord-date-err');
+  if(!input.value){ if(errEl) errEl.style.display='none'; return true; }
+  // Parse Y/M/D manually and construct via the local-time Date constructor —
+  // parsing the "YYYY-MM-DD" string directly with `new Date(str)` interprets
+  // it as UTC midnight, which can shift the resulting day-of-week by one in
+  // timezones behind UTC. This avoids that.
+  const [y,m,d] = input.value.split('-').map(Number);
+  const day = new Date(y, m-1, d).getDay(); // 0=Sun ... 3=Wed ... 6=Sat
+  const isValid = day===3 || day===6;
+  if(errEl) errEl.style.display = isValid ? 'none' : 'block';
+  if(!isValid) input.value = '';
+  return isValid;
+}
+
 async function submitOnlineOrder(){
   const first=document.getElementById('ord-first').value.trim();
   const last=document.getElementById('ord-last').value.trim();
   const email=document.getElementById('ord-email').value.trim();
   if(!first||!email){toast('Please enter your first name and email.');return;}
   if(!onlineOrder.length){toast('Please add at least one item.');return;}
+  if(!validatePickupDate(document.getElementById('ord-date'))){toast('Pickup is only available Wednesdays and Saturdays.');return;}
 
   const btn=document.getElementById('ord-submit-btn');
   btn.textContent='Submitting Order...';btn.disabled=true;
@@ -1182,6 +1191,8 @@ function resetOnlineOrder(){
   });
   const smsConsent=document.getElementById('ord-sms-consent');
   if(smsConsent) smsConsent.checked=false;
+  const dateErr=document.getElementById('ord-date-err');
+  if(dateErr) dateErr.style.display='none';
   const submitBtn=document.getElementById('ord-submit-btn');
   if(submitBtn){submitBtn.textContent='Place Order';submitBtn.disabled=false;}
   document.getElementById('ord-confirm').style.display='none';
@@ -1192,6 +1203,17 @@ function resetOnlineOrder(){
   document.getElementById('shop').scrollIntoView({behavior:'smooth',block:'start'});
 }
 
+function validateVisitDate(input){
+  const errEl = document.getElementById('bf-date-err');
+  if(!input.value){ if(errEl) errEl.style.display='none'; return true; }
+  const [y,m,d] = input.value.split('-').map(Number);
+  const day = new Date(y, m-1, d).getDay();
+  const isValid = day===3 || day===6;
+  if(errEl) errEl.style.display = isValid ? 'none' : 'block';
+  if(!isValid) input.value = '';
+  return isValid;
+}
+
 function pickTime(el){document.querySelectorAll('.tslot').forEach(s=>s.classList.remove('sel'));el.classList.add('sel');}
 async function bookVisit(){
   const first=document.getElementById('bf-first').value.trim();
@@ -1199,6 +1221,7 @@ async function bookVisit(){
   const email=document.getElementById('bf-email').value.trim();
   const type=document.getElementById('bf-type').value;
   if(!first||!email||!type){toast('Please fill in name, email, and visit type.');return;}
+  if(!validateVisitDate(document.getElementById('bf-date'))){toast('Visits are only available Wednesdays and Saturdays.');return;}
   const selSlot=document.querySelector('.tslot.sel');
   const btn=document.querySelector('.btn-book');
   btn.textContent='Saving…';btn.disabled=true;

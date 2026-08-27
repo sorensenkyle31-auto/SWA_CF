@@ -824,6 +824,18 @@ app.get('/api/bookings', async (c) => {
 app.post('/api/bookings', async (c) => {
   const body = await c.req.json();
   if (!body.first_name || !body.email) return c.json({ error: 'first_name and email required' }, 400);
+  // Visits restricted to Wednesdays/Saturdays, 8:00-10:00 AM only.
+  if (body.visit_date) {
+    const [y,m,d] = body.visit_date.split('-').map(Number);
+    const day = new Date(y, (m||1)-1, d).getDay();
+    if (day !== 3 && day !== 6) {
+      return c.json({ error: 'Visits are only available Wednesdays and Saturdays. Please choose one of those days.' }, 400);
+    }
+  }
+  const allowedTimeSlots = ['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM'];
+  if (body.time_slot && !allowedTimeSlots.includes(body.time_slot)) {
+    return c.json({ error: 'Visits are only available between 8:00 AM and 10:00 AM.' }, 400);
+  }
   const { status, data } = await sb(c.env, 'POST','bookings',body);
   if (status>=200 && status<300) {
     const name = [body.first_name, body.last_name].filter(Boolean).join(' ');
@@ -841,6 +853,15 @@ app.post('/api/orders', async (c) => {
   const body = await c.req.json();
   const { items } = body;
   if (!items || !items.length) return c.json({ error: 'items required' }, 400);
+  // Online orders only — restrict pickup to Wednesdays/Saturdays. Not applied
+  // to admin-created manual/walk-in orders, which don't have this constraint.
+  if (body.order_source !== 'manual' && body.pickup_date) {
+    const [y,m,d] = body.pickup_date.split('-').map(Number);
+    const day = new Date(y, (m||1)-1, d).getDay();
+    if (day !== 3 && day !== 6) {
+      return c.json({ error: 'Pickup is only available Wednesdays and Saturdays. Please choose one of those days.' }, 400);
+    }
+  }
   const orderRow = { ...body, order_source: body.order_source || 'online' };
   const { status, data } = await sb(c.env, 'POST','orders',orderRow);
   if (status<200 || status>=300) return c.json(data, status);

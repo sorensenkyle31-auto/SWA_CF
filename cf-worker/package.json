@@ -11,6 +11,10 @@
     "hono": "^4.13.2"
   },
   "devDependencies": {
-    "wrangler": "^3.90.0"
+    "wrangler": "^4.127.0"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "workerd@1.20260826.1": true
   }
 }
