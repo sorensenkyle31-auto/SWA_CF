@@ -112,7 +112,11 @@ section{scroll-margin-top:66px;}
 /* SHOP */
 .shop{background:var(--cream);padding:96px 60px;}
 .shop-hdr{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:48px;flex-wrap:wrap;gap:20px;}
-.pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;min-width:0;}
+.pgrid{display:flex;flex-direction:column;gap:0;min-width:0;}
+.prow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 4px;border-bottom:1px solid var(--bdr2);}
+.prow:last-child{border-bottom:none;}
+.prow-name{font-weight:700;font-size:14.5px;color:var(--text);flex:1;min-width:0;}
+.prow-right{display:flex;align-items:center;gap:16px;flex-shrink:0;}
 /* Shop two-column layout */
 .shop-layout{display:grid;grid-template-columns:360px 1fr;gap:28px;align-items:stretch;margin-top:40px;}
 .shop-sticky{position:sticky;top:80px;display:flex;flex-direction:column;gap:12px;align-self:start;}
@@ -126,6 +130,8 @@ section{scroll-margin-top:66px;}
 .pcard:hover{transform:translateY(-3px);box-shadow:var(--shd-lg);}
 /* Image container: sized for steak photos */
 .pcard-img-wrap{background:#1a3209;height:165px;display:block;overflow:hidden;position:relative;}
+.pcard-soldout-card{opacity:.72;}
+.pcard-soldout{font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#C0392B;padding:6px 0;}
 .pcard-img-wrap img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center;display:block;}
 .pbadge{position:absolute;top:10px;left:10px;background:var(--green);color:#fff;font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:4px 9px;border-radius:2px;}
 .pbody{padding:8px 10px 10px;}
@@ -417,7 +423,6 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
   .shop-layout{grid-template-columns:1fr;gap:20px;}
   .shop-sticky{position:static;}
   .inv-scroll-wrap{flex:none;height:480px;}
-  .pgrid{grid-template-columns:repeat(2,1fr);gap:8px;}
   .pcard:hover{transform:none;}
 
   
@@ -495,7 +500,6 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
 
   /* SHOP */
   .shop{padding:48px 16px;}
-  .pgrid{grid-template-columns:1fr;}
 
   
   .pos-sec{padding:48px 16px;}
@@ -582,7 +586,6 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
   .pos-grid{grid-template-columns:repeat(2,1fr);}
   .pos-tab{padding:9px 8px;font-size:9px;}
   .nav-name{font-size:14px;}
-  .pgrid{grid-template-columns:1fr;}
 }
 </style>
 </head>
@@ -658,7 +661,7 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
       </div>
     </div>
     <div class="pillars">
-      <div class="pillar"><div class="pillar-ico">🌾</div><h4>Farm Raised</h4><p>All cattle born and raised on our property. Never outsourced, never factory-farmed.</p></div>
+      <div class="pillar"><div class="pillar-ico">🌾</div><h4>Farm Raised</h4><p>All cattle born and raised on our property. Never factory-farmed.</p></div>
       <div class="pillar"><div class="pillar-ico">🚫</div><h4>Hormone Free</h4><p>Zero growth hormones. Antibiotics only in life-or-death situations.</p></div>
       <div class="pillar"><div class="pillar-ico">🏆</div><h4>Award Winning</h4><p>Supreme Grand Champion and multiple class-winning cattle.</p></div>
       <div class="pillar"><div class="pillar-ico">🤝</div><h4>Direct to You</h4><p>Buy by the piece, quarter, or half — straight from us to your freezer.</p></div>
@@ -1010,14 +1013,31 @@ function isBulkBeef(name){
   return /quarter|half|whole/i.test(name);
 }
 
+function syncInventoryHeight(){
+  const sticky = document.getElementById('shop-sticky');
+  const scrollWrap = document.querySelector('.inv-scroll-wrap');
+  if(!sticky || !scrollWrap) return;
+  // Only applies at desktop widths where the two columns sit side by side —
+  // on mobile they stack, and the CSS already gives the list a fixed height there.
+  if(window.innerWidth <= 900){ scrollWrap.style.height=''; return; }
+  const h = sticky.getBoundingClientRect().height;
+  if(h > 0) scrollWrap.style.height = h + 'px';
+}
+window.addEventListener('resize', syncInventoryHeight);
+
 function renderShop(){
   const grid=document.getElementById('pgrid');
   if(!liveItems.length){
-    grid.innerHTML='<p style="color:var(--green);font-style:italic;grid-column:1/-1;padding:24px 0;">Loading products...</p>';
+    grid.innerHTML='<p style="color:var(--green);font-style:italic;padding:24px 0;">Loading products...</p>';
     return;
   }
-  grid.innerHTML=liveItems.map((p,idx)=>{
-    const img=getProductImg(p.product_name,idx)||getCategoryFallback(p.category,idx);
+  // Full alphabetical list, no images, no card grid — a simple scannable
+  // list. Out-of-stock items (stock explicitly 0) still sort into their
+  // normal alphabetical place, but show "Out of Stock" instead of controls.
+  const sorted = liveItems.slice().sort((a,b) => (a.product_name||'').localeCompare(b.product_name||''));
+
+  grid.innerHTML=sorted.map((p)=>{
+    const isOut=p.stock===0;
     const unit=p.unit||'/lb';
     const price=parseFloat(p.price)||0;
     const bulk=isBulkBeef(p.product_name);
@@ -1025,23 +1045,20 @@ function renderShop(){
     const priceDisplay=bulk
       ? `<div class="pprice-call">Call for Price</div>`
       : `<div class="pprice">$${price.toFixed(2)}<small>${unit}</small></div>`;
-    const qtyCtrl=bulk
+    const qtyCtrl = isOut
+      ? `<div class="pcard-soldout">Out of Stock</div>`
+      : bulk
       ? `<button class="btn-add-bulk" onclick="adjOnlineQty(${p.product_id},0,'${p.product_name.replace(/'/g,"\\'")}','${unit}',${qty>0?-1:1})">${qty>0?'✓ Added':'Add to Order'}</button>`
       : `<div class="pcard-qty-ctrl">
             <button class="pqty-btn" onclick="adjOnlineQty(${p.product_id},${price},'${p.product_name.replace(/'/g,"\\'")}','${unit}',-1)">−</button>
             <span class="pqty-val" id="pqv-${p.product_id}">${qty}</span>
             <button class="pqty-btn" onclick="adjOnlineQty(${p.product_id},${price},'${p.product_name.replace(/'/g,"\\'")}','${unit}',1)">+</button>
           </div>`;
-    return`<div class="pcard${qty>0?' pcard-selected':''}" id="pcard-${p.product_id}">
-      <div class="pcard-img-wrap">
-        <img src="${img}" alt="${p.product_name}" loading="lazy"/>
-      </div>
-      <div class="pbody">
-        <div class="pname">${p.product_name}</div>
-        <div class="pfoot">
-          ${priceDisplay}
-          ${qtyCtrl}
-        </div>
+    return`<div class="prow${qty>0?' pcard-selected':''}${isOut?' pcard-soldout-card':''}" id="pcard-${p.product_id}">
+      <div class="prow-name">${p.product_name}</div>
+      <div class="prow-right">
+        ${priceDisplay}
+        ${qtyCtrl}
       </div>
     </div>`;
   }).join('');
@@ -1088,6 +1105,7 @@ function updateOnlineSummary(){
     itemsList.innerHTML='<p class="ord-empty-msg">No items selected yet — choose cuts from the list.</p>';
     if(weightNote) weightNote.style.display='none';
     if(clearBtn)   clearBtn.style.display='none';
+    setTimeout(syncInventoryHeight, 0);
     return;
   }
   itemsList.innerHTML=onlineOrder.map(i=>
@@ -1098,6 +1116,9 @@ function updateOnlineSummary(){
   ).join('');
   if(weightNote) weightNote.style.display='flex';
   if(clearBtn)   clearBtn.style.display='block';
+  // Re-sync the cuts list's height, since adding/removing items changes how
+  // tall the left column (Your Information + Your Order) is.
+  setTimeout(syncInventoryHeight, 0);
 }
 
 function clearOnlineOrder(){
@@ -1296,6 +1317,7 @@ async function loadSiteData(){
     console.error('Inventory load failed:',e.message);
   }
   renderShop();
+  setTimeout(syncInventoryHeight, 0);
 }
 </script>
 </body>
