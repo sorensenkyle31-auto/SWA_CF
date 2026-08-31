@@ -108,6 +108,14 @@ async function sendNewOrderAlert(env, order, items) {
   await sendEmail(env, env.EMAIL_FARM||'stonewallangus1@myactv.net', `New Order - ${order.order_number}`, email);
 }
 
+// ── Internal alert: order paid online (staff wouldn't otherwise know a
+//    remote/online payment just came in — this doesn't fire for orders staff
+//    mark paid themselves in the admin tool, since they already know) ────────
+async function sendAdminOrderPaidAlert(env, order, amount, method) {
+  const sms = `💰 Payment Received\nOrder: ${order.order_number}\n${order.customer_name} - $${amount.toFixed(2)}\nPaid via ${method||'PayPal online'}.`;
+  await sendSMS(env, env.TWILIO_NOTIFY, sms);
+}
+
 // ── PayPal invoice link (STUB — same as server.js, replace when ready) ─────────
 // ── PayPal Invoicing API (real integration) ─────────────────────────────────────
 // Creates a draft invoice, sends it (without PayPal's own customer email — we use
@@ -849,6 +857,11 @@ app.post('/api/paypal/capture-order/:orderId', async (c) => {
       } catch(notifyErr) {
         console.error('  Payment received notification failed (payment itself succeeded fine):', notifyErr.message);
       }
+      try {
+        c.executionCtx.waitUntil(sendAdminOrderPaidAlert(c.env, order, paidAmount));
+      } catch(notifyErr) {
+        console.error('  Admin paid-alert failed (payment itself succeeded fine):', notifyErr.message);
+      }
     }
     return c.json({ success: true, status: data.status });
   } catch(e) {
@@ -1030,6 +1043,7 @@ app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
   if (newStatus === 'fulfilled') payload.fulfilled_at = new Date().toISOString();
   const nowPaid = is_paid !== undefined ? is_paid : order.is_paid;
   const nowPrepared = items_prepared !== undefined ? items_prepared : order.items_prepared;
+  const justMarkedPaid = nowPaid && !order.is_paid; // only fire once, on the actual transition
   let ready = false;
 
   if (nowPaid && order.status === 'invoiced' && !payload.status) {
@@ -1043,6 +1057,14 @@ app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
   }
   await sb(c.env, 'PATCH','orders',payload,`?id=eq.${id}`);
   const merged = {...order, ...payload};
+  if (justMarkedPaid) {
+    const amount = parseFloat(order.final_total || 0);
+    try {
+      c.executionCtx.waitUntil(sendAdminOrderPaidAlert(c.env, merged, amount, 'manual entry (admin)'));
+    } catch(notifyErr) {
+      console.error('  Admin paid-alert (manual mark) failed:', notifyErr.message);
+    }
+  }
   if (ready && order.order_source !== 'manual') c.executionCtx.waitUntil(sendReadyForPickup(c.env, merged));
   if (payload.status === 'fulfilled' && order.order_source === 'manual') c.executionCtx.waitUntil(sendWalkInReceipt(c.env, merged));
   // Review requests are sent 30-45 min later by the scheduled cron job below,
