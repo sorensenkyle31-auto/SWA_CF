@@ -116,7 +116,8 @@ section{scroll-margin-top:66px;}
 .prow{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 4px;border-bottom:1px solid var(--bdr2);}
 .prow:last-child{border-bottom:none;}
 .prow-name{font-weight:700;font-size:14.5px;color:var(--text);flex:1;min-width:0;}
-.prow-right{display:flex;align-items:center;gap:16px;flex-shrink:0;}
+.pcat-hdr{font-size:12px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--green);padding:16px 4px 6px;border-bottom:2px solid var(--green);margin-bottom:2px;}
+.pcat-hdr:first-child{padding-top:2px;}
 /* Shop two-column layout */
 .shop-layout{display:grid;grid-template-columns:360px 1fr;gap:28px;align-items:stretch;margin-top:40px;}
 .shop-sticky{position:sticky;top:80px;display:flex;flex-direction:column;gap:12px;align-self:start;}
@@ -661,7 +662,7 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
       </div>
     </div>
     <div class="pillars">
-      <div class="pillar"><div class="pillar-ico">🌾</div><h4>Farm Raised</h4><p>All cattle born and raised on our property. Never factory-farmed.</p></div>
+      <div class="pillar"><div class="pillar-ico">🌾</div><h4>Farm Raised</h4><p>All cattle born and raised on our property. Never outsourced, never factory-farmed.</p></div>
       <div class="pillar"><div class="pillar-ico">🚫</div><h4>Hormone Free</h4><p>Zero growth hormones. Antibiotics only in life-or-death situations.</p></div>
       <div class="pillar"><div class="pillar-ico">🏆</div><h4>Award Winning</h4><p>Supreme Grand Champion and multiple class-winning cattle.</p></div>
       <div class="pillar"><div class="pillar-ico">🤝</div><h4>Direct to You</h4><p>Buy by the piece, quarter, or half — straight from us to your freezer.</p></div>
@@ -1031,36 +1032,50 @@ function renderShop(){
     grid.innerHTML='<p style="color:var(--green);font-style:italic;padding:24px 0;">Loading products...</p>';
     return;
   }
-  // Full alphabetical list, no images, no card grid — a simple scannable
-  // list. Out-of-stock items (stock explicitly 0) still sort into their
-  // normal alphabetical place, but show "Out of Stock" instead of controls.
-  const sorted = liveItems.slice().sort((a,b) => (a.product_name||'').localeCompare(b.product_name||''));
+  // Group by category in a fixed order (Steaks, Pork, Dairy), alphabetical
+  // within each group. Anything with an unrecognized/missing category still
+  // shows, grouped together at the end, rather than being silently dropped.
+  const categoryOrder = ['Steaks','Pork','Dairy'];
+  const byCategory = {};
+  categoryOrder.forEach(c => byCategory[c] = []);
+  const other = [];
+  liveItems.forEach(p => {
+    const catValue = p.category ?? p.Category ?? '';
+    const match = categoryOrder.find(c => catValue.toLowerCase() === c.toLowerCase());
+    if(match) byCategory[match].push(p);
+    else other.push(p);
+  });
+  const sections = categoryOrder.map(c => ({label:c, items:byCategory[c].slice().sort((a,b)=>(a.product_name||'').localeCompare(b.product_name||''))}));
+  if(other.length) sections.push({label:'Other', items:other.slice().sort((a,b)=>(a.product_name||'').localeCompare(b.product_name||''))});
 
-  grid.innerHTML=sorted.map((p)=>{
-    const isOut=p.stock===0;
-    const unit=p.unit||'/lb';
-    const price=parseFloat(p.price)||0;
-    const bulk=isBulkBeef(p.product_name);
-    const qty=(onlineOrder.find(x=>x.id===p.product_id)||{qty:0}).qty;
-    const priceDisplay=bulk
-      ? `<div class="pprice-call">Call for Price</div>`
-      : `<div class="pprice">$${price.toFixed(2)}<small>${unit}</small></div>`;
-    const qtyCtrl = isOut
-      ? `<div class="pcard-soldout">Out of Stock</div>`
-      : bulk
-      ? `<button class="btn-add-bulk" onclick="adjOnlineQty(${p.product_id},0,'${p.product_name.replace(/'/g,"\\'")}','${unit}',${qty>0?-1:1})">${qty>0?'✓ Added':'Add to Order'}</button>`
-      : `<div class="pcard-qty-ctrl">
-            <button class="pqty-btn" onclick="adjOnlineQty(${p.product_id},${price},'${p.product_name.replace(/'/g,"\\'")}','${unit}',-1)">−</button>
-            <span class="pqty-val" id="pqv-${p.product_id}">${qty}</span>
-            <button class="pqty-btn" onclick="adjOnlineQty(${p.product_id},${price},'${p.product_name.replace(/'/g,"\\'")}','${unit}',1)">+</button>
-          </div>`;
-    return`<div class="prow${qty>0?' pcard-selected':''}${isOut?' pcard-soldout-card':''}" id="pcard-${p.product_id}">
-      <div class="prow-name">${p.product_name}</div>
-      <div class="prow-right">
-        ${priceDisplay}
-        ${qtyCtrl}
-      </div>
-    </div>`;
+  grid.innerHTML=sections.filter(s=>s.items.length).map(section => {
+    const rows = section.items.map((p)=>{
+      const isOut=p.stock===0;
+      const unit=p.unit||'/lb';
+      const price=parseFloat(p.price)||0;
+      const bulk=isBulkBeef(p.product_name);
+      const qty=(onlineOrder.find(x=>x.id===p.product_id)||{qty:0}).qty;
+      const priceDisplay=bulk
+        ? `<div class="pprice-call">Call for Price</div>`
+        : `<div class="pprice">$${price.toFixed(2)}<small>${unit}</small></div>`;
+      const qtyCtrl = isOut
+        ? `<div class="pcard-soldout">Out of Stock</div>`
+        : bulk
+        ? `<button class="btn-add-bulk" onclick="adjOnlineQty(${p.product_id},0,'${p.product_name.replace(/'/g,"\\'")}','${unit}',${qty>0?-1:1})">${qty>0?'✓ Added':'Add to Order'}</button>`
+        : `<div class="pcard-qty-ctrl">
+              <button class="pqty-btn" onclick="adjOnlineQty(${p.product_id},${price},'${p.product_name.replace(/'/g,"\\'")}','${unit}',-1)">−</button>
+              <span class="pqty-val" id="pqv-${p.product_id}">${qty}</span>
+              <button class="pqty-btn" onclick="adjOnlineQty(${p.product_id},${price},'${p.product_name.replace(/'/g,"\\'")}','${unit}',1)">+</button>
+            </div>`;
+      return`<div class="prow${qty>0?' pcard-selected':''}${isOut?' pcard-soldout-card':''}" id="pcard-${p.product_id}">
+        <div class="prow-name">${p.product_name}</div>
+        <div class="prow-right">
+          ${priceDisplay}
+          ${qtyCtrl}
+        </div>
+      </div>`;
+    }).join('');
+    return `<div class="pcat-hdr">${section.label}</div>${rows}`;
   }).join('');
 }
 
