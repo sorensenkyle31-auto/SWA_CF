@@ -1057,6 +1057,29 @@ app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
   }
   await sb(c.env, 'PATCH','orders',payload,`?id=eq.${id}`);
   const merged = {...order, ...payload};
+
+  // Deduct fulfilled items from stock — only on the actual transition into
+  // "fulfilled" (guarded against double-deduction from a repeated call), and
+  // only for items with a tracked stock value. Mirrors the wholesale
+  // scanner's own convention of using weight_lbs as the unit of stock.
+  if (payload.status === 'fulfilled' && order.status !== 'fulfilled') {
+    try {
+      const { data: orderItems } = await sb(c.env, 'GET','order_items',null,`?order_id=eq.${id}`);
+      for (const item of (orderItems||[])) {
+        if (!item.product_id) continue;
+        const qty = parseFloat(item.weight_lbs);
+        if (!qty || qty <= 0) continue;
+        const { data: products } = await sb(c.env, 'GET','inventory',null,`?product_id=eq.${item.product_id}&limit=1`);
+        const product = products?.[0];
+        if (!product || product.stock == null) continue; // don't create a stock value out of nowhere for untracked items
+        const newStock = Math.max(0, parseFloat(product.stock) - qty);
+        await sb(c.env, 'PATCH','inventory',{stock:newStock},`?product_id=eq.${item.product_id}`);
+      }
+    } catch(stockErr) {
+      console.error('  Stock deduction on fulfillment failed (order status update itself still succeeded):', stockErr.message);
+    }
+  }
+
   if (justMarkedPaid) {
     const amount = parseFloat(order.final_total || 0);
     try {
