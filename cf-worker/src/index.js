@@ -956,6 +956,61 @@ function timingSafeEqual(a, b) {
   return result === 0;
 }
 
+// ── Scanned customer receipt (offline sale reconciliation) ─────────────────────
+// For sales that happen outside the normal digital order flow (farmers market,
+// other in-person sales) — staff scan the paper receipt, match items, and this
+// creates a completed order record + deducts stock, reusing the same deduction
+// logic as a normal order being marked fulfilled.
+app.post('/api/admin/scan-customer-sale', requireAdmin, async (c) => {
+  try {
+    const body = await c.req.json();
+    const { customer_name, line_items } = body;
+    if (!line_items || !line_items.length) return c.json({ error: 'No line items provided' }, 400);
+
+    const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
+    const subtotal = line_items.reduce((s,li) => s + (parseFloat(li.line_total)||0), 0);
+    const orderRow = {
+      order_number: orderNumber,
+      customer_name: customer_name || 'Walk-in Customer',
+      order_source: 'scanned_receipt',
+      status: 'fulfilled',
+      is_paid: true,
+      paid_at: new Date().toISOString(),
+      fulfilled_at: new Date().toISOString(),
+      final_subtotal: parseFloat(subtotal.toFixed(2)),
+      final_total: parseFloat(subtotal.toFixed(2)),
+    };
+    const { status, data } = await sb(c.env, 'POST','orders',orderRow);
+    if (status<200 || status>=300) return c.json({ error: 'Could not create order record: '+(data?.message||data?.error||JSON.stringify(data)) }, 500);
+    const order = data[0];
+    if (!order || !order.id) return c.json({ error: 'Order insert did not return a row' }, 500);
+
+    for (const li of line_items) {
+      const itemRes = await sb(c.env, 'POST','order_items',{
+        order_id: order.id, order_number: orderNumber,
+        product_id: li.product_id||null, product_name: li.product_name||'',
+        weight_lbs: parseFloat(li.weight_lbs)||0,
+        actual_price_lb: parseFloat(li.price_per_lb)||0,
+        line_total: parseFloat(li.line_total)||0,
+        status: 'fulfilled',
+      });
+      if (itemRes.status<200 || itemRes.status>=300) {
+        return c.json({ error: 'Order created, but failed to save an item: '+(itemRes.data?.message||itemRes.data?.error||JSON.stringify(itemRes.data)) }, 500);
+      }
+    }
+
+    try {
+      await deductStockForOrderItems(c.env, order.id);
+    } catch(stockErr) {
+      console.error('  Stock deduction for scanned customer sale failed (order record still saved fine):', stockErr.message);
+    }
+
+    return c.json({ success: true, order_number: orderNumber, total: subtotal.toFixed(2) });
+  } catch(e) {
+    return c.json({ error: e.message }, 500);
+  }
+});
+
 app.post('/api/admin/login', async (c) => {
   const body = await c.req.json().catch(()=>({}));
   const { username, password } = body;
@@ -1030,6 +1085,22 @@ app.post('/api/admin/orders/:id/invoice', requireAdmin, async (c) => {
   await sb(c.env, 'PATCH','order_items',{status:'invoiced'},`?order_id=eq.${id}`);
   return c.json({ success: true, total: subtotal.toFixed(2) });
 });
+// ── Deducts stock for an order's items — shared by both the normal
+//    order-fulfillment flow and the new scanned-customer-receipt flow below.
+async function deductStockForOrderItems(env, orderId) {
+  const { data: orderItems } = await sb(env, 'GET','order_items',null,`?order_id=eq.${orderId}`);
+  for (const item of (orderItems||[])) {
+    if (!item.product_id) continue;
+    const qty = parseFloat(item.weight_lbs);
+    if (!qty || qty <= 0) continue;
+    const { data: products } = await sb(env, 'GET','inventory',null,`?product_id=eq.${item.product_id}&limit=1`);
+    const product = products?.[0];
+    if (!product || product.stock == null) continue; // don't create a stock value out of nowhere for untracked items
+    const newStock = Math.max(0, parseFloat(product.stock) - qty);
+    await sb(env, 'PATCH','inventory',{stock:newStock},`?product_id=eq.${item.product_id}`);
+  }
+}
+
 app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
@@ -1060,21 +1131,10 @@ app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
 
   // Deduct fulfilled items from stock — only on the actual transition into
   // "fulfilled" (guarded against double-deduction from a repeated call), and
-  // only for items with a tracked stock value. Mirrors the wholesale
-  // scanner's own convention of using weight_lbs as the unit of stock.
+  // only for items with a tracked stock value.
   if (payload.status === 'fulfilled' && order.status !== 'fulfilled') {
     try {
-      const { data: orderItems } = await sb(c.env, 'GET','order_items',null,`?order_id=eq.${id}`);
-      for (const item of (orderItems||[])) {
-        if (!item.product_id) continue;
-        const qty = parseFloat(item.weight_lbs);
-        if (!qty || qty <= 0) continue;
-        const { data: products } = await sb(c.env, 'GET','inventory',null,`?product_id=eq.${item.product_id}&limit=1`);
-        const product = products?.[0];
-        if (!product || product.stock == null) continue; // don't create a stock value out of nowhere for untracked items
-        const newStock = Math.max(0, parseFloat(product.stock) - qty);
-        await sb(c.env, 'PATCH','inventory',{stock:newStock},`?product_id=eq.${item.product_id}`);
-      }
+      await deductStockForOrderItems(c.env, id);
     } catch(stockErr) {
       console.error('  Stock deduction on fulfillment failed (order status update itself still succeeded):', stockErr.message);
     }

@@ -162,6 +162,8 @@ button{cursor:pointer;border:none;background:none;}
 /* ── Actions ───────────────────────────────────────────────────────────────── */
 .detail-actions{padding:14px;padding-bottom:calc(14px + var(--safe-bot));display:flex;flex-direction:column;gap:10px;background:var(--bg);border-top:1px solid var(--border2);flex-shrink:0;}
 .btn-primary{width:100%;padding:15px;background:var(--green);color:#fff;border-radius:var(--radius);font-size:15px;font-weight:700;letter-spacing:.3px;transition:background .15s;}
+.scan-mode-btn{flex:1;padding:11px 8px;background:#fff;border:1.5px solid var(--border);border-radius:var(--radius);font-size:12px;font-weight:700;color:var(--text2);cursor:pointer;transition:all .15s;}
+.scan-mode-btn.active{background:var(--green);border-color:var(--green);color:#fff;}
 .btn-primary:active{background:var(--green-mid);}
 .btn-primary:disabled{background:var(--border);color:var(--text3);}
 .btn-secondary{width:100%;padding:13px;border:1.5px solid var(--green);border-radius:var(--radius);color:var(--green);font-size:14px;font-weight:700;background:transparent;transition:all .15s;}
@@ -337,11 +339,20 @@ button{cursor:pointer;border:none;background:none;}
 <div class="view hidden" id="view-scan-invoice">
   <div class="top-bar">
     <button class="top-back" onclick="showList()" title="Back to Orders">&#8592;</button>
-    <div class="top-title">Scan Wholesale Invoice</div>
+    <div class="top-title">Scan Invoice</div>
   </div>
   <div class="detail-scroll">
     <div class="detail-body" id="scan-invoice-body">
       <div class="det-section">
+        <div style="display:flex;gap:8px;margin-bottom:14px;">
+          <button class="scan-mode-btn" id="scan-mode-wholesale" onclick="setScanMode('wholesale')">📦 Wholesale Receiving</button>
+          <button class="scan-mode-btn" id="scan-mode-customer" onclick="setScanMode('customer')">🧾 Customer Sale</button>
+        </div>
+        <p id="scan-mode-desc" style="font-size:12px;color:var(--text3);margin:0 0 12px;"></p>
+        <div id="scan-customer-name-field" style="display:none;margin-bottom:12px;">
+          <label style="font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--text3);display:block;margin-bottom:4px;">Customer Name (optional)</label>
+          <input type="text" id="scan-customer-name" placeholder="Walk-in Customer" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px;"/>
+        </div>
         <button class="btn-primary" id="scan-inv-btn" onclick="document.getElementById('scan-inv-input').click()">📷 Take or Choose Photo</button>
         <input type="file" id="scan-inv-input" accept="image/*" capture="environment" style="display:none;" onchange="scanWholesaleInvoice(this)"/>
         <p style="font-size:12px;color:var(--text3);margin-top:10px;">Photograph the invoice as flat and well-lit as possible. You'll be able to review and correct every line before anything updates.</p>
@@ -350,7 +361,7 @@ button{cursor:pointer;border:none;background:none;}
     </div>
   </div>
   <div class="detail-actions" id="scan-inv-actions" style="display:none;">
-    <button class="btn-primary" id="scan-inv-confirm-btn" onclick="confirmWholesaleInvoice()">Apply to Inventory</button>
+    <button class="btn-primary" id="scan-inv-confirm-btn" onclick="confirmScanInvoice()">Apply</button>
   </div>
 </div>
 
@@ -530,12 +541,29 @@ function isBulkBeefItem(name){ return /quarter|half|whole/i.test(name||''); }
 
 // ── Wholesale invoice scanner ────────────────────────────────────────────────
 let scannedLineItems = [];
+let scanMode = 'wholesale'; // 'wholesale' or 'customer'
+
+function setScanMode(mode){
+  scanMode = mode;
+  document.getElementById('scan-mode-wholesale').classList.toggle('active', mode==='wholesale');
+  document.getElementById('scan-mode-customer').classList.toggle('active', mode==='customer');
+  document.getElementById('scan-mode-desc').textContent = mode==='wholesale'
+    ? 'Scan a supplier invoice to ADD received stock and record wholesale cost.'
+    : 'Scan a paper receipt from an offline sale (farmers market, etc.) to REDUCE stock and record the sale.';
+  document.getElementById('scan-customer-name-field').style.display = mode==='customer' ? 'block' : 'none';
+  document.getElementById('scan-inv-confirm-btn').textContent = mode==='wholesale' ? 'Apply to Inventory' : 'Record Sale';
+  // Switching modes mid-review would apply confusingly-labeled data, so reset.
+  scannedLineItems = [];
+  renderScanResults();
+}
 
 async function openScanInvoice(){
   scannedLineItems = [];
   document.getElementById('scan-inv-results').innerHTML = '';
   document.getElementById('scan-inv-actions').style.display = 'none';
   document.getElementById('scan-inv-input').value = '';
+  document.getElementById('scan-customer-name').value = '';
+  setScanMode('wholesale');
   if(!manualInventory.length){
     try{
       const r = await api(API+'/inventory?limit=500');
@@ -606,7 +634,7 @@ function renderScanResults(){
         </div>
         <div class="nf-line"><span class="nf-line-label">Pieces</span><input type="number" value="${li.pieces??''}" onchange="updateScanRow(${li.rowId},'pieces',this.value)"/></div>
         <div class="nf-line"><span class="nf-line-label">Weight (lbs)</span><input type="number" step="0.01" value="${li.weight_lbs??''}" onchange="updateScanRow(${li.rowId},'weight_lbs',this.value)"/></div>
-        <div class="nf-line"><span class="nf-line-label">Wholesale $/lb</span><input type="number" step="0.01" value="${li.wholesale_price_per_lb??''}" onchange="updateScanRow(${li.rowId},'wholesale_price_per_lb',this.value)"/></div>
+        <div class="nf-line"><span class="nf-line-label">${scanMode==='wholesale'?'Wholesale $/lb':'Sale Price $/lb'}</span><input type="number" step="0.01" value="${li.wholesale_price_per_lb??''}" onchange="updateScanRow(${li.rowId},'wholesale_price_per_lb',this.value)"/></div>
         <div class="nf-line"><span class="nf-line-label">Total Amount</span><input type="number" step="0.01" value="${li.total_amount??''}" onchange="updateScanRow(${li.rowId},'total_amount',this.value)"/></div>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-top:8px;cursor:pointer;">
           <input type="checkbox" ${li.skip?'checked':''} onchange="updateScanRow(${li.rowId},'skip',this.checked)"/> Skip this line (don't apply to inventory)
@@ -622,6 +650,11 @@ function updateScanRow(rowId, field, value){
   if(field==='skip') row[field] = value;
   else if(field==='matched_product_id' || field==='description') row[field] = value;
   else row[field] = value===''? null : parseFloat(value);
+}
+
+async function confirmScanInvoice(){
+  if(scanMode==='wholesale') return confirmWholesaleInvoice();
+  return confirmCustomerSale();
 }
 
 async function confirmWholesaleInvoice(){
@@ -658,6 +691,44 @@ async function confirmWholesaleInvoice(){
     document.getElementById('scan-inv-input').value='';
   } else {
     toast(successCount+' applied, '+failCount+' failed — please check and retry those.','error');
+  }
+}
+
+async function confirmCustomerSale(){
+  const toApply = scannedLineItems.filter(li=>!li.skip);
+  const unmatched = toApply.filter(li=>!li.matched_product_id);
+  if(unmatched.length){
+    toast(unmatched.length+' line item(s) still need a product match, or check "Skip" for lines you don\'t want to apply.','error');
+    return;
+  }
+  if(!toApply.length){ toast('Nothing to record — all lines are skipped.','error'); return; }
+
+  const btn = document.getElementById('scan-inv-confirm-btn');
+  btn.textContent = 'Recording…'; btn.disabled = true;
+  try{
+    const line_items = toApply.map(li => {
+      const product = manualInventory.find(p=>String(p.product_id)===String(li.matched_product_id));
+      return {
+        product_id: li.matched_product_id,
+        product_name: product?.product_name || li.description || '',
+        weight_lbs: li.weight_lbs!=null ? li.weight_lbs : (li.pieces||0),
+        price_per_lb: li.wholesale_price_per_lb,
+        line_total: li.total_amount,
+      };
+    });
+    const customerName = document.getElementById('scan-customer-name').value.trim();
+    const r = await api(API+'/admin/scan-customer-sale', {method:'POST', body: JSON.stringify({customer_name: customerName||undefined, line_items})});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || 'Could not record this sale.');
+    toast('Sale recorded as '+d.order_number+' — stock updated.','success');
+    scannedLineItems = [];
+    renderScanResults();
+    document.getElementById('scan-inv-input').value='';
+    document.getElementById('scan-customer-name').value='';
+  }catch(e){
+    toast(e.message,'error');
+  }finally{
+    btn.textContent = 'Record Sale'; btn.disabled = false;
   }
 }
 
