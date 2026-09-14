@@ -985,18 +985,20 @@ app.post('/api/admin/scan-customer-sale', requireAdmin, async (c) => {
     const order = data[0];
     if (!order || !order.id) return c.json({ error: 'Order insert did not return a row' }, 500);
 
-    for (const li of line_items) {
-      const itemRes = await sb(c.env, 'POST','order_items',{
-        order_id: order.id, order_number: orderNumber,
-        product_id: li.product_id||null, product_name: li.product_name||'',
-        weight_lbs: parseFloat(li.weight_lbs)||0,
-        actual_price_lb: parseFloat(li.price_per_lb)||0,
-        line_total: parseFloat(li.line_total)||0,
-        status: 'fulfilled',
-      });
-      if (itemRes.status<200 || itemRes.status>=300) {
-        return c.json({ error: 'Order created, but failed to save an item: '+(itemRes.data?.message||itemRes.data?.error||JSON.stringify(itemRes.data)) }, 500);
-      }
+    // Batch-insert all order_items in ONE request rather than looping per
+    // item — each item was its own subrequest before, which could exceed
+    // Cloudflare's per-invocation subrequest limit on larger receipts.
+    const itemRows = line_items.map(li => ({
+      order_id: order.id, order_number: orderNumber,
+      product_id: li.product_id||null, product_name: li.product_name||'',
+      weight_lbs: parseFloat(li.weight_lbs)||0,
+      actual_price_lb: parseFloat(li.price_per_lb)||0,
+      line_total: parseFloat(li.line_total)||0,
+      status: 'fulfilled',
+    }));
+    const itemsRes = await sb(c.env, 'POST','order_items',itemRows);
+    if (itemsRes.status<200 || itemsRes.status>=300) {
+      return c.json({ error: 'Order created, but failed to save items: '+(itemsRes.data?.message||itemsRes.data?.error||JSON.stringify(itemsRes.data)) }, 500);
     }
 
     try {
@@ -1089,13 +1091,24 @@ app.post('/api/admin/orders/:id/invoice', requireAdmin, async (c) => {
 //    order-fulfillment flow and the new scanned-customer-receipt flow below.
 async function deductStockForOrderItems(env, orderId) {
   const { data: orderItems } = await sb(env, 'GET','order_items',null,`?order_id=eq.${orderId}`);
-  for (const item of (orderItems||[])) {
-    if (!item.product_id) continue;
-    const qty = parseFloat(item.weight_lbs);
-    if (!qty || qty <= 0) continue;
-    const { data: products } = await sb(env, 'GET','inventory',null,`?product_id=eq.${item.product_id}&limit=1`);
-    const product = products?.[0];
+  const validItems = (orderItems||[]).filter(item => item.product_id && parseFloat(item.weight_lbs) > 0);
+  if (!validItems.length) return;
+
+  // Batch-fetch all needed inventory rows in ONE request (PostgREST's `in.`
+  // filter) instead of one GET per item — same subrequest-limit reasoning
+  // as the batched order_items insert above.
+  const ids = [...new Set(validItems.map(i => i.product_id))];
+  const { data: products } = await sb(env, 'GET','inventory',null,`?product_id=in.(${ids.join(',')})`);
+  const byId = new Map((products||[]).map(p => [String(p.product_id), p]));
+
+  // Each product needs a DIFFERENT new stock value, so these PATCH calls
+  // can't be batched the same way — still one subrequest per item here,
+  // but the two batching fixes above should keep the total well under
+  // typical per-invocation limits for realistic receipt sizes.
+  for (const item of validItems) {
+    const product = byId.get(String(item.product_id));
     if (!product || product.stock == null) continue; // don't create a stock value out of nowhere for untracked items
+    const qty = parseFloat(item.weight_lbs);
     const newStock = Math.max(0, parseFloat(product.stock) - qty);
     await sb(env, 'PATCH','inventory',{stock:newStock},`?product_id=eq.${item.product_id}`);
   }
