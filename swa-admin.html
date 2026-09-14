@@ -247,6 +247,7 @@ button{cursor:pointer;border:none;background:none;}
   </div>
   <div class="top-bar" style="padding-top:12px;">
     <div class="top-title">Orders</div>
+    <button class="top-action" onclick="openManageInventory()" style="margin-right:6px;">📋 Inventory</button>
     <button class="top-action" onclick="openScanInvoice()" style="margin-right:6px;">📷 Scan Invoice</button>
     <button class="top-action" onclick="openNewOrder()" style="margin-right:6px;">+ New</button>
     <button class="top-action" onclick="loadOrders()">↻ Refresh</button>
@@ -365,6 +366,27 @@ button{cursor:pointer;border:none;background:none;}
   </div>
 </div>
 
+<!-- MANAGE INVENTORY -->
+<div class="view hidden" id="view-manage-inventory">
+  <div class="top-bar">
+    <button class="top-back" onclick="showList()" title="Back to Orders">&#8592;</button>
+    <div class="top-title">Inventory</div>
+    <button class="top-action" onclick="loadManageInventory()">↻</button>
+  </div>
+  <div class="detail-scroll">
+    <div class="detail-body">
+      <div class="det-section">
+        <input type="text" id="mi-search" placeholder="Search products…" oninput="renderManageInventory()"
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;margin-bottom:10px;"/>
+        <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text2);cursor:pointer;">
+          <input type="checkbox" id="mi-show-advanced" onchange="renderManageInventory()"/> Show Min Stock &amp; Wholesale Cost
+        </label>
+      </div>
+      <div id="mi-results"><div class="spinner">Loading inventory...</div></div>
+    </div>
+  </div>
+</div>
+
 </div>
 <div class="toast" id="toast"></div>
 
@@ -379,6 +401,101 @@ let allOrders     = [];
 let isPaid        = false;
 let itemsPrepared = false;
 let manualInventory = [];
+let miInventory = [];
+
+async function openManageInventory(){
+  document.getElementById('mi-search').value = '';
+  showView('view-manage-inventory');
+  await loadManageInventory();
+}
+
+async function loadManageInventory(){
+  document.getElementById('mi-results').innerHTML = '<div class="spinner">Loading inventory...</div>';
+  try{
+    const r = await api(API+'/inventory?limit=500');
+    if(!r.ok) throw new Error('Failed to load inventory');
+    miInventory = await r.json() || [];
+    manualInventory = miInventory; // keep the scan-invoice matching dropdown in sync too
+    renderManageInventory();
+  }catch(e){
+    document.getElementById('mi-results').innerHTML = '<div class="empty-state">'+escapeHtml(e.message)+'</div>';
+  }
+}
+
+function renderManageInventory(){
+  const box = document.getElementById('mi-results');
+  const q = (document.getElementById('mi-search').value||'').trim().toLowerCase();
+  const showAdvanced = document.getElementById('mi-show-advanced').checked;
+  const filtered = miInventory.filter(p => !q || (p.product_name||'').toLowerCase().includes(q));
+
+  if(!filtered.length){
+    box.innerHTML = '<div class="empty-state">No products found.</div>';
+    return;
+  }
+
+  const categoryOrder = ['Beef','Pork','Dairy'];
+  const byCategory = {}; categoryOrder.forEach(c => byCategory[c] = []);
+  const other = [];
+  filtered.forEach(p => {
+    const catValue = p.category ?? p.Category ?? '';
+    const match = categoryOrder.find(c => catValue.toLowerCase() === c.toLowerCase());
+    if(match) byCategory[match].push(p); else other.push(p);
+  });
+  const sections = categoryOrder.map(c => ({label:c, items:byCategory[c].slice().sort((a,b)=>(a.product_name||'').localeCompare(b.product_name||''))}));
+  if(other.length) sections.push({label:'Other', items:other.slice().sort((a,b)=>(a.product_name||'').localeCompare(b.product_name||''))});
+
+  box.innerHTML = sections.filter(s=>s.items.length).map(section => {
+    const rows = section.items.map(p => {
+      const stock = p.stock;
+      const minStock = p.min_stock;
+      const isLow = stock!=null && minStock!=null && parseFloat(stock) <= parseFloat(minStock);
+      const isOut = stock === 0;
+      return `<div class="nf-card" style="margin-bottom:10px;${isOut?'border-color:#C0392B;':isLow?'border-color:#C87A12;':''}">
+        <div class="nf-line"><span class="nf-line-label" style="font-weight:700;color:var(--text);">${escapeHtml(p.product_name)}</span>
+          ${isOut?'<span style="font-size:11px;font-weight:700;color:#C0392B;">OUT OF STOCK</span>':isLow?'<span style="font-size:11px;font-weight:700;color:#C87A12;">LOW STOCK</span>':''}
+        </div>
+        <div class="nf-line"><span class="nf-line-label">Stock</span>
+          <input type="number" step="0.01" value="${stock??''}" placeholder="not tracked"
+            onchange="saveInventoryField(${p.product_id},'stock',this.value,this)"/>
+        </div>
+        ${showAdvanced ? `<div class="nf-line"><span class="nf-line-label">Min Stock</span>
+          <input type="number" step="0.01" value="${minStock??''}" placeholder="—"
+            onchange="saveInventoryField(${p.product_id},'min_stock',this.value,this)"/>
+        </div>` : ''}
+        <div class="nf-line"><span class="nf-line-label">Price ($${p.unit||'/lb'})</span>
+          <input type="number" step="0.01" value="${p.price??''}"
+            onchange="saveInventoryField(${p.product_id},'price',this.value,this)"/>
+        </div>
+        ${showAdvanced ? `<div class="nf-line"><span class="nf-line-label">Wholesale Cost</span>
+          <input type="number" step="0.01" value="${p.wholesale_cost??''}" placeholder="—"
+            onchange="saveInventoryField(${p.product_id},'wholesale_cost',this.value,this)"/>
+        </div>` : ''}
+      </div>`;
+    }).join('');
+    return `<div class="det-section"><div class="pcat-hdr" style="border-bottom:2px solid var(--green);padding-bottom:6px;margin-bottom:10px;font-weight:800;text-transform:uppercase;font-size:12px;letter-spacing:1px;color:var(--green);">${section.label}</div>${rows}</div>`;
+  }).join('');
+}
+
+async function saveInventoryField(productId, field, value, inputEl){
+  const numVal = value===''? null : parseFloat(value);
+  const original = inputEl.defaultValue;
+  inputEl.disabled = true;
+  try{
+    const r = await api(API+'/inventory/'+productId, {method:'PATCH', body: JSON.stringify({[field]: numVal})});
+    if(!r.ok) throw new Error('Save failed');
+    const product = miInventory.find(p=>p.product_id===productId);
+    if(product) product[field] = numVal;
+    toast('Saved.','success');
+    // Re-render so low-stock/out-of-stock badges and defaultValue update immediately
+    renderManageInventory();
+  }catch(e){
+    toast('Could not save — please try again.','error');
+    inputEl.value = original;
+  }finally{
+    inputEl.disabled = false;
+  }
+}
+
 let manualRows = []; // [{rowId, product_id, name, unit, catalogPrice, weight, price}]
 let manualRowSeq = 0;
 let manualSearchQuery = '';
