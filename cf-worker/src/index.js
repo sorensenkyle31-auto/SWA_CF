@@ -667,6 +667,15 @@ async function requireAdmin(c, next) {
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
+// ── Public business configuration endpoint ──────────────────────────────────
+// Lets the static frontend pages (which have no server-side templating of
+// their own) fetch the same business-identity data the backend now uses,
+// rather than having it baked into the HTML at all.
+app.get('/api/business-config', async (c) => {
+  const config = await getBusinessConfig(c.env);
+  return c.json(config);
+});
+
 app.get('/api/health', async (c) => {
   // Live-check Supabase (cheap single-row select) since that's the thing most
   // worth knowing is actually working, not just configured. Twilio isn't

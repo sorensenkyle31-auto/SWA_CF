@@ -599,7 +599,7 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
 <!-- NAV -->
 <nav>
   <a href="#" class="nav-brand">
-    <div class="nav-icon"><img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus"/></div>
+    <div class="nav-icon"><img id="cfg-nav-logo" src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus"/></div>
     <div class="nav-name">Stone Wall <span>Angus</span></div>
   </a>
   <ul class="nav-links">
@@ -681,8 +681,8 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
     <div class="shop-hdr">
       <div>
         <div class="eyebrow">Online Store</div>
-        <h2 class="sh">Order Premium <em>Products</em></h2>
-        <p class="sp">All-natural, grain &amp; grass fed. No hormones. Per pound unless noted. Schedule your pickup at the farm <b>Wednesday 5pm&ndash;7pm or Saturday 9am&ndash;2pm.</b></p>
+        <h2 class="sh">Order Premium <em>Cuts</em></h2>
+        <p class="sp">All-natural, grain &amp; grass fed. No hormones. Per pound unless noted. Schedule your pickup at the farm <b>Wednesday 5pm&ndash;7pm or Saturday 9am&ndash;2pm or by appointment.</b></p>
       </div>
     </div>
 
@@ -760,8 +760,8 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
       <div class="invoice-wrap">
         <div class="invoice-hdr">
           <div class="invoice-brand">
-            <div class="invoice-logo">🐄 Stone Wall Angus</div>
-            <div class="invoice-address">17719 Spielman Road, Fairplay, MD 21733<br>(240) 818-8317 · stonewallangus1@myactv.net</div>
+            <div class="invoice-logo" id="cfg-invoice-name">🐄 Stone Wall Angus</div>
+            <div class="invoice-address" id="cfg-invoice-address">17719 Spielman Road, Fairplay, MD 21733<br>(240) 818-8317 · stonewallangus1@myactv.net</div>
           </div>
           <div class="invoice-meta">
             <div class="invoice-title">ORDER CONFIRMATION</div>
@@ -835,7 +835,7 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
         <p class="sp">Located in Washington County's countryside. Open every Saturday — or call any time to set up a visit that works for you.</p>
         <div class="vinfocols">
           <div class="mapbox">
-            <div><span class="mpin">📍</span><div class="maddr">17719 Spielman Road<br>Fairplay, MD 21733</div><a href="https://maps.google.com/?q=17719+Spielman+Road+Fairplay+MD" target="_blank" class="mlink">Get Directions →</a></div>
+            <div><span class="mpin">📍</span><div class="maddr" id="cfg-map-address">17719 Spielman Road<br>Fairplay, MD 21733</div><a href="https://maps.google.com/?q=17719+Spielman+Road+Fairplay+MD" target="_blank" class="mlink" id="cfg-map-link">Get Directions →</a></div>
           </div>
           <div>
             <table class="hrs-tbl">
@@ -844,8 +844,8 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
               <tr><td>Sunday</td><td>By Appt.</td></tr>
             </table>
             <div class="clist">
-              <div class="crow"><div class="cico">📞</div><span>(240) 818-8317</span></div>
-              <div class="crow"><div class="cico">✉️</div><span><a href="mailto:stonewallangus1@myactv.net">stonewallangus1@myactv.net</a></span></div>
+              <div class="crow"><div class="cico">📞</div><span id="cfg-phone-1">(240) 818-8317</span></div>
+              <div class="crow"><div class="cico">✉️</div><span><a href="mailto:stonewallangus1@myactv.net" id="cfg-email-link-1">stonewallangus1@myactv.net</a></span></div>
             </div>
           </div>
         </div>
@@ -899,15 +899,15 @@ button,a{-webkit-tap-highlight-color:rgba(0,0,0,0);}
 <footer>
   <div class="finner">
     <div>
-      <img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Logo.png" alt="Stone Wall Angus logo" style="width:150px;height:auto;margin-bottom:14px;display:block;"/>
+      <img id="cfg-footer-logo" src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Logo.png" alt="Stone Wall Angus logo" style="width:150px;height:auto;margin-bottom:14px;display:block;"/>
       <p class="fdesc">Family-owned Angus farm in Fairplay, Maryland providing premium, naturally raised beef and show cattle since 1989.</p>
       <div class="fbadge">🏆 Supreme Grand Champion</div>
     </div>
     <div><div class="fch">Shop</div><ul class="fnav"><li><a href="#shop">Beef Cuts</a></li><li><a href="#shop">Quarter Beef</a></li><li><a href="#shop">Half Beef</a></li><li><a href="#shop">Beef Bones</a></li></ul></div>
     <div><div class="fch">Visit</div><ul class="fnav"><li><a href="#visit">Book Appointment</a></li><li><a href="#visit">Store Hours</a></li><li><a href="#visit">Directions</a></li><li><a href="#about">Our Story</a></li></ul></div>
-    <div><div class="fch">Contact</div><ul class="fnav"><li><a href="tel:2408188317">(240) 818-8317</a></li><li><a href="mailto:stonewallangus1@myactv.net">Email Us</a></li><li><a href="https://www.facebook.com/stonewallangus" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.413c0-3.025 1.791-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.265h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>Facebook</a></li><li><a href="https://g.page/r/CSmYIWx9gpa4EBM/review" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01L12 2z"/></svg>Google Reviews</a></li><li><a href="#pos">Farm POS</a></li></ul></div>
+    <div><div class="fch">Contact</div><ul class="fnav"><li><a href="tel:2408188317" id="cfg-footer-tel">(240) 818-8317</a></li><li><a href="mailto:stonewallangus1@myactv.net" id="cfg-footer-email">Email Us</a></li><li><a href="https://www.facebook.com/stonewallangus" id="cfg-facebook-link" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073C24 5.405 18.627 0 12 0S0 5.405 0 12.073C0 18.1 4.388 23.094 10.125 24v-8.437H7.078v-3.49h3.047V9.413c0-3.025 1.791-4.697 4.533-4.697 1.312 0 2.686.236 2.686.236v2.97h-1.513c-1.491 0-1.956.93-1.956 1.886v2.265h3.328l-.532 3.49h-2.796V24C19.612 23.094 24 18.1 24 12.073z"/></svg>Facebook</a></li><li><a href="https://g.page/r/CSmYIWx9gpa4EBM/review" id="cfg-google-link" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:7px;"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l7.1-1.01L12 2z"/></svg>Google Reviews</a></li><li><a href="#pos">Farm POS</a></li></ul></div>
   </div>
-  <div class="fbot"><span>© 2025 Stone Wall Angus, LLC — Fairplay, Maryland</span><span>17719 Spielman Rd, Fairplay, MD 21733</span></div>
+  <div class="fbot"><span>© 2025 Stone Wall Angus, LLC — Fairplay, Maryland</span><span id="cfg-fbot-address">17719 Spielman Rd, Fairplay, MD 21733</span></div>
   <div class="fbot" style="margin-top:8px;"><span><a href="https://swa-legal.pages.dev/privacy" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">Privacy Policy &amp; SMS Terms</a> &middot; <a href="https://swa-legal.pages.dev/terms" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline;">Terms &amp; Conditions</a></span></div>
 </footer>
 
@@ -1310,8 +1310,65 @@ const API='https://api.stonewallangus.com/api';
 function apiFetch(path, opts={}){
   return fetch(API+path, opts);
 }
+
+async function loadBusinessConfig(){
+  try{
+    const r = await apiFetch('/business-config');
+    if(!r.ok) return; // page already has correct hardcoded values as a fallback
+    const cfg = await r.json();
+
+    // Brand color — overrides the CSS custom property everything else already
+    // references, so the whole color scheme updates from one value.
+    if(cfg.brand_color) document.documentElement.style.setProperty('--green', cfg.brand_color);
+
+    // Logo images
+    const navLogo = document.getElementById('cfg-nav-logo');
+    if(navLogo && cfg.logo_url){ navLogo.src = cfg.logo_url; navLogo.alt = cfg.business_name||navLogo.alt; }
+    const footerLogo = document.getElementById('cfg-footer-logo');
+    if(footerLogo && cfg.logo_url){ footerLogo.src = cfg.logo_url; footerLogo.alt = (cfg.business_name||'')+' logo'; }
+
+    // Text content — name, address, phone, email
+    const fullAddress = [cfg.address_street, `${cfg.address_city||''}, ${cfg.address_state||''} ${cfg.address_zip||''}`.trim()].filter(Boolean).join('<br>');
+    const shortAddress = [cfg.address_street, `${cfg.address_city||''}, ${cfg.address_state||''} ${cfg.address_zip||''}`.trim()].filter(Boolean).join(', ');
+
+    const setText = (id, val) => { const el=document.getElementById(id); if(el && val!=null) el.textContent = val; };
+    const setHtml = (id, val) => { const el=document.getElementById(id); if(el && val!=null) el.innerHTML = val; };
+
+    setText('cfg-invoice-name', '🐄 '+(cfg.business_name||''));
+    setHtml('cfg-invoice-address', `${fullAddress}<br>${cfg.phone||''} · ${cfg.email||''}`);
+    setHtml('cfg-map-address', fullAddress);
+    setText('cfg-phone-1', cfg.phone);
+
+    const emailLink1 = document.getElementById('cfg-email-link-1');
+    if(emailLink1 && cfg.email){ emailLink1.href = 'mailto:'+cfg.email; emailLink1.textContent = cfg.email; }
+
+    setText('cfg-fbot-address', shortAddress);
+
+    const footerTel = document.getElementById('cfg-footer-tel');
+    if(footerTel && cfg.phone_raw){ footerTel.href = 'tel:'+cfg.phone_raw; footerTel.textContent = cfg.phone; }
+    const footerEmail = document.getElementById('cfg-footer-email');
+    if(footerEmail && cfg.email) footerEmail.href = 'mailto:'+cfg.email;
+
+    // Social/review links — both nav (by class, since they're icon-only) and footer (by id)
+    if(cfg.facebook_url){
+      document.querySelectorAll('.nav-fb, #cfg-facebook-link').forEach(el => el.href = cfg.facebook_url);
+    }
+    if(cfg.google_review_url){
+      document.querySelectorAll('.nav-google, #cfg-google-link').forEach(el => el.href = cfg.google_review_url);
+    }
+
+    const mapLink = document.getElementById('cfg-map-link');
+    if(mapLink && cfg.address_street){
+      mapLink.href = 'https://maps.google.com/?q='+encodeURIComponent(`${cfg.address_street} ${cfg.address_city} ${cfg.address_state}`);
+    }
+  }catch(e){
+    console.warn('Business config load failed, using page defaults:', e.message);
+  }
+}
+
 /* INIT */
 document.addEventListener('DOMContentLoaded',async function(){
+  loadBusinessConfig();
   renderShop();
   loadSiteData();
 });
