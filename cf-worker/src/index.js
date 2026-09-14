@@ -28,8 +28,28 @@ app.onError((err, c) => {
 });
 
 // ── Supabase REST helper (unchanged logic from server.js — already fetch-based) ─
-async function sb(env, method, table, body = null, query = '') {
-  const url = `${env.SUPABASE_URL}/rest/v1/${table}${query}`;
+async function sb(env, method, table, body = null, query = '', tenantId) {
+  // tenantId is required, not optional — a missing/forgotten tenantId throws
+  // loudly right here rather than silently skipping tenant isolation, which
+  // is the failure mode that actually matters (a missed filter should break
+  // immediately and obviously, not quietly leak data once a second tenant exists).
+  if (tenantId === undefined) {
+    throw new Error(`sb() called without tenantId for table "${table}" — every query must be tenant-scoped.`);
+  }
+  let finalQuery = query;
+  let finalBody = body;
+  if (tenantId !== null) { // null is the deliberate escape hatch for the tenants table itself, see below
+    if (method === 'GET' || method === 'PATCH' || method === 'DELETE') {
+      const sep = finalQuery.includes('?') ? '&' : '?';
+      finalQuery = `${finalQuery}${sep}tenant_id=eq.${tenantId}`;
+    }
+    if (method === 'POST' && finalBody) {
+      finalBody = Array.isArray(finalBody)
+        ? finalBody.map(row => ({ ...row, tenant_id: tenantId }))
+        : { ...finalBody, tenant_id: tenantId };
+    }
+  }
+  const url = `${env.SUPABASE_URL}/rest/v1/${table}${finalQuery}`;
   const res = await fetch(url, {
     method,
     headers: {
@@ -37,7 +57,7 @@ async function sb(env, method, table, body = null, query = '') {
       'Content-Type': 'application/json',
       'Prefer': (method === 'POST' || method === 'PATCH') ? 'return=representation' : '',
     },
-    ...(body ? { body: JSON.stringify(body) } : {}),
+    ...(finalBody ? { body: JSON.stringify(finalBody) } : {}),
   });
   const text = await res.text();
   if (!res.ok) console.error(`  x ${res.status}:`, text);
@@ -47,6 +67,38 @@ async function sb(env, method, table, body = null, query = '') {
     catch(e) { data = { error: `Non-JSON response from Supabase (status ${res.status})`, raw: text.slice(0,500) }; }
   }
   return { status: res.status, data };
+}
+
+// ── Tenant resolution ────────────────────────────────────────────────────────
+// Determines which business a request belongs to, based on the domain it
+// arrived on. Cached per-domain (same pattern as business config) to avoid a
+// DB round-trip on every request. Falls back to tenant 1 (Stone Wall Angus)
+// on any lookup failure — safe for now since it's the only tenant that
+// exists, and prevents a lookup hiccup from taking the whole site down.
+let _tenantCache = new Map(); // domain -> {tenantId, time}
+const TENANT_CACHE_TTL_MS = 60000;
+
+async function getTenantId(c) {
+  const host = c.req.header('host') || '';
+  const now = Date.now();
+  const cached = _tenantCache.get(host);
+  if (cached && (now - cached.time) < TENANT_CACHE_TTL_MS) {
+    console.log(`  Tenant resolved: ${host} -> tenant ${cached.tenantId} (cached)`);
+    return cached.tenantId;
+  }
+  try {
+    // tenantId: null here is the deliberate escape hatch mentioned in sb()
+    // above — the tenants table itself isn't tenant-scoped (it's what DEFINES
+    // the tenants), so it can't filter by the very thing it's resolving.
+    const { data } = await sb(c.env, 'GET','tenants',null,`?domain=eq.${encodeURIComponent(host)}&limit=1`, null);
+    const tenantId = data?.[0]?.id ?? 1;
+    _tenantCache.set(host, { tenantId, time: now });
+    console.log(`  Tenant resolved: ${host} -> tenant ${tenantId} (fresh lookup)`);
+    return tenantId;
+  } catch(e) {
+    console.error('  Tenant resolution failed, defaulting to tenant 1:', e.message);
+    return 1;
+  }
 }
 
 // ── Business configuration (multi-tenant foundation) ────────────────────────
@@ -77,23 +129,23 @@ const DEFAULT_CONFIG = {
   facebook_url: 'https://www.facebook.com/stonewallangus',
 };
 
-let _configCache = null;
-let _configCacheTime = 0;
+let _configCache = new Map(); // tenantId -> {config, time}
 const CONFIG_CACHE_TTL_MS = 60000; // 1 minute — avoids a DB round-trip on every request while still picking up real changes quickly
 
-async function getBusinessConfig(env) {
+async function getBusinessConfig(env, tenantId) {
   const now = Date.now();
-  if (_configCache && (now - _configCacheTime) < CONFIG_CACHE_TTL_MS) return _configCache;
+  const cached = _configCache.get(tenantId);
+  if (cached && (now - cached.time) < CONFIG_CACHE_TTL_MS) return cached.config;
   try {
-    const { data } = await sb(env, 'GET','business_config',null,'?id=eq.1&limit=1');
+    const { data } = await sb(env, 'GET','business_config',null,'?limit=1', tenantId);
     const config = data?.[0];
     if (!config) {
-      console.error('  business_config row not found — using hardcoded defaults');
+      console.error(`  business_config row not found for tenant ${tenantId} — using hardcoded defaults`);
       return DEFAULT_CONFIG;
     }
-    _configCache = { ...DEFAULT_CONFIG, ...config }; // merge so a missing new column never breaks an old row
-    _configCacheTime = now;
-    return _configCache;
+    const merged = { ...DEFAULT_CONFIG, ...config }; // merge so a missing new column never breaks an old row
+    _configCache.set(tenantId, { config: merged, time: now });
+    return merged;
   } catch(e) {
     console.error('  business_config fetch failed, using hardcoded defaults:', e.message);
     return DEFAULT_CONFIG;
@@ -119,12 +171,12 @@ async function sendSMS(env, to, msg) {
 // ── Email via Resend's HTTP API ─────────────────────────────────────────────
 // (Mailchannels' free Cloudflare Workers email API was shut down in August
 // 2024 — Resend is Cloudflare's current recommended replacement.)
-async function sendEmail(env, to, subject, text, html) {
+async function sendEmail(env, to, subject, text, html, tenantId) {
   if (!to) return;
   const fromAddr = env.EMAIL_FROM || env.EMAIL_FARM;
   if (!fromAddr) { console.warn('  Email skipped: no EMAIL_FROM configured'); return; }
   if (!env.RESEND_API_KEY) { console.warn('  Email skipped: no RESEND_API_KEY configured'); return; }
-  const config = await getBusinessConfig(env);
+  const config = await getBusinessConfig(env, tenantId);
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -151,14 +203,14 @@ function fmtPhone(raw) {
   return digits.length === 10 ? '+1' + digits : null;
 }
 
-async function sendNewOrderAlert(env, order, items) {
-  const config = await getBusinessConfig(env);
+async function sendNewOrderAlert(env, order, items, tenantId) {
+  const config = await getBusinessConfig(env, tenantId);
   const itemList = items.map(i => `${i.name} x${i.qty||1}`).join(', ');
   const sms = `New Order: ${order.order_number}\n${order.customer_name} | ${order.customer_phone||order.customer_email}\nItems: ${itemList}\nPickup: ${order.pickup_date||'TBD'}`;
   await sendSMS(env, env.TWILIO_NOTIFY, sms);
   const email =
     `New order received.\n\nORDER: ${order.order_number}\nCustomer: ${order.customer_name}\nEmail: ${order.customer_email}\nPhone: ${order.customer_phone||'N/A'}\nPickup: ${order.pickup_date||'TBD'}\n${order.notes?'Notes: '+order.notes+'\n':''}\nItems:\n${items.map(i=>`  - ${i.name} x${i.qty||1}`).join('\n')}\n\nOpen the admin app to enter weights and send the invoice.`;
-  await sendEmail(env, env.EMAIL_FARM||config.email, `New Order - ${order.order_number}`, email);
+  await sendEmail(env, env.EMAIL_FARM||config.email, `New Order - ${order.order_number}`, email, undefined, tenantId);
 }
 
 // ── Internal alert: order paid online (staff wouldn't otherwise know a
@@ -188,12 +240,12 @@ async function getPayPalAccessToken(env) {
   return data.access_token;
 }
 
-async function createPayPalInvoiceLink(env, order, items, total) {
+async function createPayPalInvoiceLink(env, order, items, total, tenantId) {
   if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
     console.warn('  PayPal not configured — using stub link');
     return { url: createStubPayPalLink(order, total), invoiceNumber: null };
   }
-  const config = await getBusinessConfig(env);
+  const config = await getBusinessConfig(env, tenantId);
   try {
     // Only include a recipient name if we genuinely have both parts — an empty
     // surname (e.g. a single-word customer name) is accepted by the create-invoice
@@ -342,8 +394,8 @@ function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypal
 </body></html>`;
 }
 
-async function sendInvoiceNotification(env, order, items) {
-  const config = await getBusinessConfig(env);
+async function sendInvoiceNotification(env, order, items, tenantId) {
+  const config = await getBusinessConfig(env, tenantId);
   const subtotal  = items.reduce((s,i) => s + parseFloat(i.line_total||0), 0);
   const total     = subtotal;
   const firstName = (order.customer_name||'').split(' ')[0] || 'Customer';
@@ -353,8 +405,8 @@ async function sendInvoiceNotification(env, order, items) {
   // to PayPal's hosted page at all — they pay on our own branded page instead
   // (see the /pay/:orderNumber route), which sidesteps the whole class of issue
   // we hit with PayPal's hosted invoice links breaking when opened from SMS.
-  const { url: paypalLink, invoiceNumber: paypalInvoiceNumber } = await createPayPalInvoiceLink(env, order, items, total);
-  await sb(env, 'PATCH','orders',{paypal_pay_url:paypalLink,paypal_invoice_number:paypalInvoiceNumber},`?id=eq.${order.id}`).catch(e=>console.warn('  Could not save paypal_pay_url:', e.message));
+  const { url: paypalLink, invoiceNumber: paypalInvoiceNumber } = await createPayPalInvoiceLink(env, order, items, total, tenantId);
+  await sb(env, 'PATCH','orders',{paypal_pay_url:paypalLink,paypal_invoice_number:paypalInvoiceNumber},`?id=eq.${order.id}`, tenantId).catch(e=>console.warn('  Could not save paypal_pay_url:', e.message));
 
   const payPageUrl = `${env.PUBLIC_API_URL || ''}/pay/${encodeURIComponent(order.order_number)}`;
 
@@ -368,7 +420,7 @@ async function sendInvoiceNotification(env, order, items) {
     `Please arrange payment before pickup: ${order.pickup_date||'TBD'}\nCall ${config.phone} or email ${config.email}\n\n${config.business_name}`;
   const emailHtml = buildInvoiceEmailHtml(order, items, subtotal, total, payPageUrl, paypalInvoiceNumber, config);
 
-  await sendEmail(env, order.customer_email, `Invoice - ${config.business_name} ${order.order_number}`, emailText, emailHtml);
+  await sendEmail(env, order.customer_email, `Invoice - ${config.business_name} ${order.order_number}`, emailText, emailHtml, tenantId);
   if (order.sms_consent) {
     const sms = `Invoice Ready - ${config.business_name}\nOrder: ${order.order_number}\nTotal: $${total.toFixed(2)}\nPay securely: ${payPageUrl}\nQuestions? ${config.phone}\n(Tip: save this number as "${config.business_name}" for easy reference!)`;
     await sendSMS(env, fmtPhone(order.customer_phone), sms);
@@ -547,12 +599,12 @@ function buildPaymentReceivedEmailHtml(order, amount, config) {
 </body></html>`;
 }
 
-async function sendPaymentReceivedNotification(env, order, amount) {
-  const config = await getBusinessConfig(env);
+async function sendPaymentReceivedNotification(env, order, amount, tenantId) {
+  const config = await getBusinessConfig(env, tenantId);
   const firstName = (order.customer_name||'').split(' ')[0] || 'Customer';
   const emailText = `Hi ${firstName},\n\nWe've received your payment of $${amount.toFixed(2)} for order ${order.order_number}. Paid in full — we'll notify you again once it's ready for pickup.\n\n${config.business_name}\n${config.phone}`;
   const emailHtml = buildPaymentReceivedEmailHtml(order, amount, config);
-  await sendEmail(env, order.customer_email, `Payment Received - ${config.business_name} ${order.order_number}`, emailText, emailHtml);
+  await sendEmail(env, order.customer_email, `Payment Received - ${config.business_name} ${order.order_number}`, emailText, emailHtml, tenantId);
 
   if (order.sms_consent) {
     const sms = `Payment received! Order ${order.order_number} is paid in full ($${amount.toFixed(2)}). We'll text you again once it's ready for pickup.\nQuestions? ${config.phone}`;
@@ -560,10 +612,10 @@ async function sendPaymentReceivedNotification(env, order, amount) {
   }
 }
 
-async function sendWalkInReceipt(env, order) {
-  const config = await getBusinessConfig(env);
+async function sendWalkInReceipt(env, order, tenantId) {
+  const config = await getBusinessConfig(env, tenantId);
   let items = [];
-  try { const r = await sb(env, 'GET','order_items',null,`?order_id=eq.${order.id}&order=id.asc`); items = r.data || []; }
+  try { const r = await sb(env, 'GET','order_items',null,`?order_id=eq.${order.id}&order=id.asc`, tenantId); items = r.data || []; }
   catch(e) { console.warn('  Could not load items for receipt:', e.message); }
   const total = items.reduce((s,i) => s + parseFloat(i.line_total||0), 0) || parseFloat(order.final_total||0);
   const firstName = (order.customer_name||'').split(' ')[0] || 'Customer';
@@ -572,7 +624,7 @@ async function sendWalkInReceipt(env, order) {
   const emailText =
     `Thank you, ${firstName}!\n\nHere's your receipt for order ${order.order_number}:\n\n${items.map(i=>`  ${i.product_name} - ${i.weight_lbs||0} lbs = $${parseFloat(i.line_total||0).toFixed(2)}`).join('\n')}\n\nTOTAL PAID: $${total.toFixed(2)}\n\nPaid in full — thanks for stopping by!\n\n${config.business_name}\n${config.phone}`;
   const emailHtml = buildWalkInReceiptEmailHtml(order, items, total, config);
-  await sendEmail(env, order.customer_email, `Receipt - ${config.business_name} ${order.order_number}`, emailText, emailHtml);
+  await sendEmail(env, order.customer_email, `Receipt - ${config.business_name} ${order.order_number}`, emailText, emailHtml, tenantId);
 
   if (order.sms_consent) {
     const sms = `Thank you! Receipt for order ${order.order_number}\n${itemList?'Items: '+itemList+'\n':''}TOTAL PAID: $${total.toFixed(2)}\nPaid in full. Thanks for stopping by ${config.business_name}!\nQuestions? ${config.phone}\n(Tip: save this number as "${config.business_name}" for easy reference!)`;
@@ -580,8 +632,8 @@ async function sendWalkInReceipt(env, order) {
   }
 }
 
-async function sendReadyForPickup(env, order) {
-  const config = await getBusinessConfig(env);
+async function sendReadyForPickup(env, order, tenantId) {
+  const config = await getBusinessConfig(env, tenantId);
   const fullAddress = `${config.address_street}, ${config.address_city}, ${config.address_state} ${config.address_zip}`;
   const shortAddress = `${config.address_street}, ${config.address_city} ${config.address_state}`;
   if (order.sms_consent) {
@@ -590,7 +642,7 @@ async function sendReadyForPickup(env, order) {
   }
 
   let items = [];
-  try { const r = await sb(env, 'GET','order_items',null,`?order_id=eq.${order.id}&order=id.asc`); items = r.data || []; }
+  try { const r = await sb(env, 'GET','order_items',null,`?order_id=eq.${order.id}&order=id.asc`, tenantId); items = r.data || []; }
   catch(e) { console.warn('  Could not load items for ready email:', e.message); }
   const total = items.reduce((s,i) => s + parseFloat(i.line_total||0), 0) || parseFloat(order.final_total||0);
 
@@ -598,7 +650,7 @@ async function sendReadyForPickup(env, order) {
   const emailText =
     `Dear ${firstName},\n\nYour order is ready for pickup!\n\nOrder: ${order.order_number}\n${order.pickup_date?'Pickup Date: '+order.pickup_date+'\n':''}Location: ${fullAddress}\n\nSee you soon!\n\n${config.business_name}\n${config.phone}`;
   const emailHtml = buildReadyPickupEmailHtml(order, items, total, config);
-  await sendEmail(env, order.customer_email, `Order Ready for Pickup - ${config.business_name} ${order.order_number}`, emailText, emailHtml);
+  await sendEmail(env, order.customer_email, `Order Ready for Pickup - ${config.business_name} ${order.order_number}`, emailText, emailHtml, tenantId);
 }
 
 // ── HTML "Leave us a review" email (sent when an order is marked Fulfilled) ────
@@ -636,8 +688,8 @@ function buildReviewRequestEmailHtml(order, googleUrl, facebookUrl, config) {
 </body></html>`;
 }
 
-async function sendReviewRequest(env, order) {
-  const config = await getBusinessConfig(env);
+async function sendReviewRequest(env, order, tenantId) {
+  const config = await getBusinessConfig(env, tenantId);
   const googleUrl = env.GOOGLE_REVIEW_URL || config.google_review_url;
   const facebookUrl = env.FACEBOOK_URL || config.facebook_url;
   const firstName = (order.customer_name||'').split(' ')[0] || 'there';
@@ -645,7 +697,7 @@ async function sendReviewRequest(env, order) {
   const emailText =
     `Hi ${firstName},\n\nThanks for your order (${order.order_number})! If you have a minute, we'd really appreciate a review:\n\nGoogle: ${googleUrl}\nFacebook: ${facebookUrl}\n\nThank you for supporting our family farm!\n\n${config.business_name}\n${config.phone}`;
   const emailHtml = buildReviewRequestEmailHtml(order, googleUrl, facebookUrl, config);
-  await sendEmail(env, order.customer_email, `How did we do? - ${config.business_name}`, emailText, emailHtml);
+  await sendEmail(env, order.customer_email, `How did we do? - ${config.business_name}`, emailText, emailHtml, tenantId);
 
   if (order.sms_consent) {
     const sms = `Thanks for your order from ${config.business_name}! If you enjoyed it, we'd love a quick review: ${googleUrl}\nReply STOP to opt out.`;
@@ -672,7 +724,8 @@ async function requireAdmin(c, next) {
 // their own) fetch the same business-identity data the backend now uses,
 // rather than having it baked into the HTML at all.
 app.get('/api/business-config', async (c) => {
-  const config = await getBusinessConfig(c.env);
+  const tenantId = await getTenantId(c);
+  const config = await getBusinessConfig(c.env, tenantId);
   return c.json(config);
 });
 
@@ -710,8 +763,9 @@ app.get('/api/health', async (c) => {
 app.get('/api/pay/:orderNumber', async (c) => {
   try {
     const orderNumber = decodeURIComponent(c.req.param('orderNumber'));
-    const config = await getBusinessConfig(c.env);
-    const { data } = await sb(c.env, 'GET','orders',null,`?order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`);
+    const tenantId = await getTenantId(c);
+    const config = await getBusinessConfig(c.env, tenantId);
+    const { data } = await sb(c.env, 'GET','orders',null,`?order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`, tenantId);
     const order = data?.[0];
     if (!order || !order.paypal_pay_url) {
       return c.text(`Payment link not found. Please contact ${config.business_name} at ${config.phone}.`, 404);
@@ -751,19 +805,20 @@ a{color:${config.brand_color};font-weight:700;}</style>
 // only the underlying card processing happens via PayPal's API in the
 // background. No redirect to paypal.com at all.
 
-async function getOrderTotal(env, orderNumber) {
-  const { data: orders } = await sb(env, 'GET','orders',null,`?order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`);
+async function getOrderTotal(env, orderNumber, tenantId) {
+  const { data: orders } = await sb(env, 'GET','orders',null,`?order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`, tenantId);
   const order = orders?.[0];
   if (!order) return null;
-  const { data: items } = await sb(env, 'GET','order_items',null,`?order_id=eq.${order.id}&order=id.asc`);
+  const { data: items } = await sb(env, 'GET','order_items',null,`?order_id=eq.${order.id}&order=id.asc`, tenantId);
   const total = (items||[]).reduce((s,i)=>s+parseFloat(i.line_total||0),0) || parseFloat(order.final_total||0);
   return { order, items: items||[], total };
 }
 
 app.get('/pay/:orderNumber', async (c) => {
   const orderNumber = decodeURIComponent(c.req.param('orderNumber'));
-  const config = await getBusinessConfig(c.env);
-  const found = await getOrderTotal(c.env, orderNumber);
+  const tenantId = await getTenantId(c);
+  const config = await getBusinessConfig(c.env, tenantId);
+  const found = await getOrderTotal(c.env, orderNumber, tenantId);
   if (!found || !found.order) {
     return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;"><h2>Order not found</h2><p>Please contact ${config.business_name} at ${config.phone}.</p></body></html>`, 404);
   }
@@ -872,7 +927,8 @@ if (window.paypal && window.paypal.Buttons) {
 app.post('/api/paypal/create-order', async (c) => {
   try {
     const { order_number } = await c.req.json();
-    const found = await getOrderTotal(c.env, order_number);
+    const tenantId = await getTenantId(c);
+    const found = await getOrderTotal(c.env, order_number, tenantId);
     if (!found || !found.order) return c.json({ error: 'Order not found' }, 404);
     const { total } = found;
 
@@ -902,6 +958,7 @@ app.post('/api/paypal/capture-order/:orderId', async (c) => {
   try {
     const orderId = c.req.param('orderId');
     const { order_number } = await c.req.json();
+    const tenantId = await getTenantId(c);
     const token = await getPayPalAccessToken(c.env);
     const base = c.env.PAYPAL_ENV === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
     const res = await fetch(`${base}/v2/checkout/orders/${orderId}/capture`, {
@@ -915,17 +972,17 @@ app.post('/api/paypal/capture-order/:orderId', async (c) => {
     }
 
     // Mark our order paid
-    const { data: orders } = await sb(c.env, 'GET','orders',null,`?order_number=eq.${encodeURIComponent(order_number)}&limit=1`);
+    const { data: orders } = await sb(c.env, 'GET','orders',null,`?order_number=eq.${encodeURIComponent(order_number)}&limit=1`, tenantId);
     const order = orders?.[0];
     if (order) {
-      await sb(c.env, 'PATCH','orders',{is_paid:true,paid_at:new Date().toISOString(),status: order.status==='invoiced'?'paid':order.status},`?id=eq.${order.id}`);
+      await sb(c.env, 'PATCH','orders',{is_paid:true,paid_at:new Date().toISOString(),status: order.status==='invoiced'?'paid':order.status},`?id=eq.${order.id}`, tenantId);
       // Notification failures must never affect the customer-facing response —
       // the payment and DB update above already succeeded by this point, so a
       // problem sending the confirmation email/SMS shouldn't report as a
       // payment failure. Isolated in its own try/catch for that reason.
       const paidAmount = parseFloat(data?.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value || order.final_total || 0);
       try {
-        c.executionCtx.waitUntil(sendPaymentReceivedNotification(c.env, order, paidAmount));
+        c.executionCtx.waitUntil(sendPaymentReceivedNotification(c.env, order, paidAmount, tenantId));
       } catch(notifyErr) {
         console.error('  Payment received notification failed (payment itself succeeded fine):', notifyErr.message);
       }
@@ -944,11 +1001,13 @@ app.post('/api/paypal/capture-order/:orderId', async (c) => {
 
 app.get('/api/inventory', async (c) => {
   const limit = c.req.query('limit') || 500;
-  const { status, data } = await sb(c.env, 'GET','inventory',null,`?order=product_id.asc&limit=${limit}`);
+  const tenantId = await getTenantId(c);
+  const { status, data } = await sb(c.env, 'GET','inventory',null,`?order=product_id.asc&limit=${limit}`, tenantId);
   return c.json(data, status);
 });
 app.patch('/api/inventory/:id', requireAdmin, async (c) => {
   const productId = c.req.param('id');
+  const tenantId = await getTenantId(c);
   const body = await c.req.json();
   // Stock is tracked in whole units, not fractional — round here centrally
   // so every caller (manual edits, wholesale receiving, order fulfillment,
@@ -958,10 +1017,10 @@ app.patch('/api/inventory/:id', requireAdmin, async (c) => {
   // Fetch current values first, so we can log what actually changed —
   // and so the response can tell the frontend exactly what changed for a
   // descriptive toast message, not just "saved".
-  const { data: existing } = await sb(c.env, 'GET','inventory',null,`?product_id=eq.${productId}&limit=1`);
+  const { data: existing } = await sb(c.env, 'GET','inventory',null,`?product_id=eq.${productId}&limit=1`, tenantId);
   const before = existing?.[0] || {};
 
-  const { status, data } = await sb(c.env, 'PATCH','inventory',{...body,last_updated:new Date().toISOString()},`?product_id=eq.${productId}`);
+  const { status, data } = await sb(c.env, 'PATCH','inventory',{...body,last_updated:new Date().toISOString()},`?product_id=eq.${productId}`, tenantId);
 
   // Log an audit entry per changed field. Best-effort — a logging failure
   // should never block the actual inventory update from succeeding.
@@ -979,7 +1038,7 @@ app.patch('/api/inventory/:id', requireAdmin, async (c) => {
         changed_by: changedBy,
       }));
     if (auditRows.length) {
-      try { await sb(c.env, 'POST','inventory_audit_log',auditRows); }
+      try { await sb(c.env, 'POST','inventory_audit_log',auditRows, '', tenantId); }
       catch(auditErr) { console.error('  Audit log write failed (inventory update itself still succeeded):', auditErr.message); }
     }
   }
@@ -988,7 +1047,8 @@ app.patch('/api/inventory/:id', requireAdmin, async (c) => {
 });
 
 app.get('/api/bookings', async (c) => {
-  const { status, data } = await sb(c.env, 'GET','bookings',null,'?order=created_at.desc&limit=200');
+  const tenantId = await getTenantId(c);
+  const { status, data } = await sb(c.env, 'GET','bookings',null,'?order=created_at.desc&limit=200', tenantId);
   return c.json(data, status);
 });
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -1001,7 +1061,8 @@ function formatDayList(dayNumbers) {
 app.post('/api/bookings', async (c) => {
   const body = await c.req.json();
   if (!body.first_name || !body.email) return c.json({ error: 'first_name and email required' }, 400);
-  const config = await getBusinessConfig(c.env);
+  const tenantId = await getTenantId(c);
+  const config = await getBusinessConfig(c.env, tenantId);
   // Visit days/hours are configurable per business — see business_config.
   if (body.visit_date) {
     const [y,m,d] = body.visit_date.split('-').map(Number);
@@ -1018,7 +1079,7 @@ app.post('/api/bookings', async (c) => {
       return c.json({ error: `Visits are only available between ${config.visit_hour_start}:00 and ${config.visit_hour_end}:00.` }, 400);
     }
   }
-  const { status, data } = await sb(c.env, 'POST','bookings',body);
+  const { status, data } = await sb(c.env, 'POST','bookings',body, '', tenantId);
   if (status>=200 && status<300) {
     const name = [body.first_name, body.last_name].filter(Boolean).join(' ');
     c.executionCtx.waitUntil(sendSMS(c.env, c.env.TWILIO_NOTIFY, `New Appointment\n${name} | ${body.visit_type||'N/A'}\n${body.visit_date||'TBD'} at ${body.time_slot||'TBD'}\n${body.phone||'no phone'}`));
@@ -1028,14 +1089,16 @@ app.post('/api/bookings', async (c) => {
 
 app.get('/api/orders', async (c) => {
   const limit = c.req.query('limit') || 100;
-  const { status, data } = await sb(c.env, 'GET','orders',null,`?order=created_at.desc&limit=${limit}`);
+  const tenantId = await getTenantId(c);
+  const { status, data } = await sb(c.env, 'GET','orders',null,`?order=created_at.desc&limit=${limit}`, tenantId);
   return c.json(data, status);
 });
 app.post('/api/orders', async (c) => {
   const body = await c.req.json();
   const { items } = body;
   if (!items || !items.length) return c.json({ error: 'items required' }, 400);
-  const config = await getBusinessConfig(c.env);
+  const tenantId = await getTenantId(c);
+  const config = await getBusinessConfig(c.env, tenantId);
   // Online orders only — restrict pickup to configured pickup days. Not
   // applied to admin-created manual/walk-in orders, which don't have this constraint.
   if (body.order_source !== 'manual' && body.pickup_date) {
@@ -1046,7 +1109,7 @@ app.post('/api/orders', async (c) => {
     }
   }
   const orderRow = { ...body, order_source: body.order_source || 'online' };
-  const { status, data } = await sb(c.env, 'POST','orders',orderRow);
+  const { status, data } = await sb(c.env, 'POST','orders',orderRow, '', tenantId);
   if (status<200 || status>=300) return c.json(data, status);
   const order = data[0];
   if (!order || !order.id) return c.json({ error: 'Order insert did not return a row — check Supabase RLS/return=representation settings' }, 500);
@@ -1056,12 +1119,12 @@ app.post('/api/orders', async (c) => {
       product_id: item.id||null, product_name: item.name,
       qty_ordered: item.qty||1, unit: item.unit||'/lb',
       price_per_unit: parseFloat(item.price_per_unit||0), status:'pending',
-    });
+    }, '', tenantId);
     if (itemRes.status<200 || itemRes.status>=300) {
       return c.json({ error: 'Order created, but failed to save item "'+item.name+'": '+(itemRes.data?.message||itemRes.data?.error||JSON.stringify(itemRes.data)) }, 500);
     }
   }
-  c.executionCtx.waitUntil(sendNewOrderAlert(c.env, body, items));
+  c.executionCtx.waitUntil(sendNewOrderAlert(c.env, body, items, tenantId));
   return c.json(data, status);
 });
 
@@ -1085,6 +1148,7 @@ app.post('/api/admin/scan-customer-sale', requireAdmin, async (c) => {
     const body = await c.req.json();
     const { customer_name, line_items } = body;
     if (!line_items || !line_items.length) return c.json({ error: 'No line items provided' }, 400);
+    const tenantId = await getTenantId(c);
 
     const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
     const subtotal = line_items.reduce((s,li) => s + (parseFloat(li.line_total)||0), 0);
@@ -1099,7 +1163,7 @@ app.post('/api/admin/scan-customer-sale', requireAdmin, async (c) => {
       final_subtotal: parseFloat(subtotal.toFixed(2)),
       final_total: parseFloat(subtotal.toFixed(2)),
     };
-    const { status, data } = await sb(c.env, 'POST','orders',orderRow);
+    const { status, data } = await sb(c.env, 'POST','orders',orderRow, '', tenantId);
     if (status<200 || status>=300) return c.json({ error: 'Could not create order record: '+(data?.message||data?.error||JSON.stringify(data)) }, 500);
     const order = data[0];
     if (!order || !order.id) return c.json({ error: 'Order insert did not return a row' }, 500);
@@ -1115,13 +1179,13 @@ app.post('/api/admin/scan-customer-sale', requireAdmin, async (c) => {
       line_total: parseFloat(li.line_total)||0,
       status: 'fulfilled',
     }));
-    const itemsRes = await sb(c.env, 'POST','order_items',itemRows);
+    const itemsRes = await sb(c.env, 'POST','order_items',itemRows, '', tenantId);
     if (itemsRes.status<200 || itemsRes.status>=300) {
       return c.json({ error: 'Order created, but failed to save items: '+(itemsRes.data?.message||itemsRes.data?.error||JSON.stringify(itemsRes.data)) }, 500);
     }
 
     try {
-      await deductStockForOrderItems(c.env, order.id);
+      await deductStockForOrderItems(c.env, order.id, tenantId);
     } catch(stockErr) {
       console.error('  Stock deduction for scanned customer sale failed (order record still saved fine):', stockErr.message);
     }
@@ -1157,30 +1221,35 @@ app.post('/api/admin/logout', async (c) => {
 
 app.get('/api/admin/orders', requireAdmin, async (c) => {
   const statusFilter = c.req.query('status');
+  const tenantId = await getTenantId(c);
   const q = statusFilter ? `?status=eq.${statusFilter}&order=created_at.desc&limit=200` : `?order=created_at.desc&limit=200`;
-  const { status, data } = await sb(c.env, 'GET','orders',null,q);
+  const { status, data } = await sb(c.env, 'GET','orders',null,q, tenantId);
   return c.json(data, status);
 });
 app.get('/api/admin/orders/:id', requireAdmin, async (c) => {
-  const { data } = await sb(c.env, 'GET','orders',null,`?id=eq.${c.req.param('id')}&limit=1`);
+  const tenantId = await getTenantId(c);
+  const { data } = await sb(c.env, 'GET','orders',null,`?id=eq.${c.req.param('id')}&limit=1`, tenantId);
   return c.json(data?.[0] || null);
 });
 app.get('/api/admin/orders/:id/items', requireAdmin, async (c) => {
-  const { status, data } = await sb(c.env, 'GET','order_items',null,`?order_id=eq.${c.req.param('id')}&order=id.asc`);
+  const tenantId = await getTenantId(c);
+  const { status, data } = await sb(c.env, 'GET','order_items',null,`?order_id=eq.${c.req.param('id')}&order=id.asc`, tenantId);
   return c.json(data, status);
 });
 app.patch('/api/admin/order-items/:itemId', requireAdmin, async (c) => {
   const payload = await c.req.json();
+  const tenantId = await getTenantId(c);
   if (payload.weight_lbs!=null && payload.actual_price_lb!=null) {
     payload.line_total = parseFloat((parseFloat(payload.weight_lbs)*parseFloat(payload.actual_price_lb)).toFixed(2));
     payload.status = 'weighed';
   }
-  await sb(c.env, 'PATCH','order_items',payload,`?id=eq.${c.req.param('itemId')}`);
+  await sb(c.env, 'PATCH','order_items',payload,`?id=eq.${c.req.param('itemId')}`, tenantId);
   return c.json({ success: true, line_total: payload.line_total||null, status: payload.status||null });
 });
 app.post('/api/admin/orders/:id/invoice', requireAdmin, async (c) => {
   const id = c.req.param('id');
-  const { data: orders } = await sb(c.env, 'GET','orders',null,`?id=eq.${id}&limit=1`);
+  const tenantId = await getTenantId(c);
+  const { data: orders } = await sb(c.env, 'GET','orders',null,`?id=eq.${id}&limit=1`, tenantId);
   const order = orders?.[0]; if (!order) return c.json({ error: 'Order not found' }, 404);
   // Guard against duplicate invoices/emails — once an order has moved past
   // pending_weight, it's already been invoiced (or further along). Re-running
@@ -1189,7 +1258,7 @@ app.post('/api/admin/orders/:id/invoice', requireAdmin, async (c) => {
   if (alreadyInvoiced) {
     return c.json({ error: `This order was already invoiced${order.invoice_sent_at?' on '+new Date(order.invoice_sent_at).toLocaleDateString():''}. Duplicate invoices/emails are blocked to avoid confusing the customer or creating extra PayPal records.` }, 409);
   }
-  const { data: items } = await sb(c.env, 'GET','order_items',null,`?order_id=eq.${id}&order=id.asc`);
+  const { data: items } = await sb(c.env, 'GET','order_items',null,`?order_id=eq.${id}&order=id.asc`, tenantId);
   const subtotal = (items||[]).reduce((s,i)=>s+parseFloat(i.line_total||0),0);
   // Walk-in orders get ONE combined notification once the whole transaction is
   // complete (paid + fulfilled), not a separate "invoice ready, please pay"
@@ -1197,19 +1266,19 @@ app.post('/api/admin/orders/:id/invoice', requireAdmin, async (c) => {
   // moments of this step. Online orders still get the standalone invoice email,
   // since for them "invoice ready" and "picked up" are genuinely separate events.
   if (order.order_source !== 'manual') {
-    await sendInvoiceNotification(c.env, order, items||[]);
+    await sendInvoiceNotification(c.env, order, items||[], tenantId);
   }
-  const orderPatch = await sb(c.env, 'PATCH','orders',{status:'invoiced',invoice_sent_at:new Date().toISOString(),final_subtotal:parseFloat(subtotal.toFixed(2)),final_total:parseFloat(subtotal.toFixed(2))},`?id=eq.${id}`);
+  const orderPatch = await sb(c.env, 'PATCH','orders',{status:'invoiced',invoice_sent_at:new Date().toISOString(),final_subtotal:parseFloat(subtotal.toFixed(2)),final_total:parseFloat(subtotal.toFixed(2))},`?id=eq.${id}`, tenantId);
   if (orderPatch.status<200 || orderPatch.status>=300) {
     return c.json({ error: 'Invoice email sent, but failed to update order status: '+(orderPatch.data?.message||orderPatch.data?.error||JSON.stringify(orderPatch.data)) }, 500);
   }
-  await sb(c.env, 'PATCH','order_items',{status:'invoiced'},`?order_id=eq.${id}`);
+  await sb(c.env, 'PATCH','order_items',{status:'invoiced'},`?order_id=eq.${id}`, tenantId);
   return c.json({ success: true, total: subtotal.toFixed(2) });
 });
 // ── Deducts stock for an order's items — shared by both the normal
 //    order-fulfillment flow and the new scanned-customer-receipt flow below.
-async function deductStockForOrderItems(env, orderId) {
-  const { data: orderItems } = await sb(env, 'GET','order_items',null,`?order_id=eq.${orderId}`);
+async function deductStockForOrderItems(env, orderId, tenantId) {
+  const { data: orderItems } = await sb(env, 'GET','order_items',null,`?order_id=eq.${orderId}`, tenantId);
   const validItems = (orderItems||[]).filter(item => item.product_id && parseFloat(item.weight_lbs) > 0);
   if (!validItems.length) return;
 
@@ -1217,7 +1286,7 @@ async function deductStockForOrderItems(env, orderId) {
   // filter) instead of one GET per item — same subrequest-limit reasoning
   // as the batched order_items insert above.
   const ids = [...new Set(validItems.map(i => i.product_id))];
-  const { data: products } = await sb(env, 'GET','inventory',null,`?product_id=in.(${ids.join(',')})`);
+  const { data: products } = await sb(env, 'GET','inventory',null,`?product_id=in.(${ids.join(',')})`, tenantId);
   const byId = new Map((products||[]).map(p => [String(p.product_id), p]));
 
   // Each product needs a DIFFERENT new stock value, so these PATCH calls
@@ -1229,15 +1298,16 @@ async function deductStockForOrderItems(env, orderId) {
     if (!product || product.stock == null) continue; // don't create a stock value out of nowhere for untracked items
     const qty = parseFloat(item.weight_lbs);
     const newStock = Math.round(Math.max(0, parseFloat(product.stock) - qty));
-    await sb(env, 'PATCH','inventory',{stock:newStock},`?product_id=eq.${item.product_id}`);
+    await sb(env, 'PATCH','inventory',{stock:newStock},`?product_id=eq.${item.product_id}`, tenantId);
   }
 }
 
 app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
+  const tenantId = await getTenantId(c);
   const { is_paid, items_prepared, status: newStatus } = body;
-  const { data: orders } = await sb(c.env, 'GET','orders',null,`?id=eq.${id}&limit=1`);
+  const { data: orders } = await sb(c.env, 'GET','orders',null,`?id=eq.${id}&limit=1`, tenantId);
   const order = orders?.[0]; if (!order) return c.json({ error: 'Order not found' }, 404);
   const payload = {};
   if (is_paid !== undefined) payload.is_paid = is_paid;
@@ -1258,7 +1328,7 @@ app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
     payload.ready_at = new Date().toISOString();
     ready = true;
   }
-  await sb(c.env, 'PATCH','orders',payload,`?id=eq.${id}`);
+  await sb(c.env, 'PATCH','orders',payload,`?id=eq.${id}`, tenantId);
   const merged = {...order, ...payload};
 
   // Deduct fulfilled items from stock — only on the actual transition into
@@ -1266,7 +1336,7 @@ app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
   // only for items with a tracked stock value.
   if (payload.status === 'fulfilled' && order.status !== 'fulfilled') {
     try {
-      await deductStockForOrderItems(c.env, id);
+      await deductStockForOrderItems(c.env, id, tenantId);
     } catch(stockErr) {
       console.error('  Stock deduction on fulfillment failed (order status update itself still succeeded):', stockErr.message);
     }
@@ -1280,8 +1350,8 @@ app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
       console.error('  Admin paid-alert (manual mark) failed:', notifyErr.message);
     }
   }
-  if (ready && order.order_source !== 'manual') c.executionCtx.waitUntil(sendReadyForPickup(c.env, merged));
-  if (payload.status === 'fulfilled' && order.order_source === 'manual') c.executionCtx.waitUntil(sendWalkInReceipt(c.env, merged));
+  if (ready && order.order_source !== 'manual') c.executionCtx.waitUntil(sendReadyForPickup(c.env, merged, tenantId));
+  if (payload.status === 'fulfilled' && order.order_source === 'manual') c.executionCtx.waitUntil(sendWalkInReceipt(c.env, merged, tenantId));
   // Review requests are sent 30-45 min later by the scheduled cron job below,
   // not immediately here — see the `scheduled` export at the bottom of this file.
   return c.json({ success: true, triggered_ready: ready, status: payload.status || order.status });
@@ -1397,19 +1467,28 @@ app.post('/api/admin/scan-wholesale-invoice', requireAdmin, async (c) => {
 // Runs on whatever interval is set in wrangler.toml's [triggers] crons (e.g.
 // every 5 minutes). Each run picks up any order that crossed the 30-minute mark
 // since its last check and hasn't had a review request sent yet.
+// Runs once per tenant, since a scheduled/cron trigger has no incoming
+// request to resolve a domain/tenant from the usual way.
 async function runReviewRequestSweep(env) {
+  const { data: tenants } = await sb(env, 'GET','tenants',null,'?status=eq.active', null);
+  for (const tenant of (tenants||[])) {
+    await runReviewRequestSweepForTenant(env, tenant.id);
+  }
+}
+
+async function runReviewRequestSweepForTenant(env, tenantId) {
   const cutoff = new Date(Date.now() - 30*60*1000).toISOString();
   const { status, data } = await sb(env, 'GET','orders',null,
-    `?status=eq.fulfilled&review_requested_at=is.null&fulfilled_at=lte.${cutoff}&order=fulfilled_at.asc&limit=25`);
+    `?status=eq.fulfilled&review_requested_at=is.null&fulfilled_at=lte.${cutoff}&order=fulfilled_at.asc&limit=25`, tenantId);
   if (status<200 || status>=300 || !Array.isArray(data)) {
-    console.warn('  Review sweep: could not fetch eligible orders', data);
+    console.warn(`  Review sweep (tenant ${tenantId}): could not fetch eligible orders`, data);
     return;
   }
-  console.log(`  Review sweep: ${data.length} order(s) eligible`);
+  console.log(`  Review sweep (tenant ${tenantId}): ${data.length} order(s) eligible`);
   for (const order of data) {
     try {
-      await sendReviewRequest(env, order);
-      await sb(env, 'PATCH','orders',{review_requested_at:new Date().toISOString()},`?id=eq.${order.id}`);
+      await sendReviewRequest(env, order, tenantId);
+      await sb(env, 'PATCH','orders',{review_requested_at:new Date().toISOString()},`?id=eq.${order.id}`, tenantId);
       console.log('  Review request sent for', order.order_number);
     } catch(e) {
       console.warn('  Review request failed for', order.order_number, e.message);
