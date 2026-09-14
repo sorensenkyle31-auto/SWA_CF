@@ -49,6 +49,57 @@ async function sb(env, method, table, body = null, query = '') {
   return { status: res.status, data };
 }
 
+// ── Business configuration (multi-tenant foundation) ────────────────────────
+// Every business-identity value (name, contact info, hours, categories,
+// links) used to be hardcoded throughout this file. It's now pulled from a
+// single database record instead — the first real step toward this codebase
+// eventually serving more than one business. DEFAULT_CONFIG is a safety net:
+// if the business_config table/row doesn't exist yet (e.g. migration hasn't
+// run), the site keeps working with Stone Wall Angus's real current values
+// rather than breaking outright.
+const DEFAULT_CONFIG = {
+  business_name: 'Stone Wall Angus',
+  phone: '(240) 818-8317',
+  phone_raw: '2408188317',
+  email: 'stonewallangus1@myactv.net',
+  address_street: '17719 Spielman Road',
+  address_city: 'Fairplay',
+  address_state: 'MD',
+  address_zip: '21733',
+  logo_url: 'https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png',
+  brand_color: '#6B1F1F',
+  pickup_days: [3, 6],
+  visit_days: [3, 6],
+  visit_hour_start: 8,
+  visit_hour_end: 10,
+  category_order: ['Beef', 'Pork', 'Dairy'],
+  google_review_url: 'https://g.page/r/CSmYIWx9gpa4EBM/review',
+  facebook_url: 'https://www.facebook.com/stonewallangus',
+};
+
+let _configCache = null;
+let _configCacheTime = 0;
+const CONFIG_CACHE_TTL_MS = 60000; // 1 minute — avoids a DB round-trip on every request while still picking up real changes quickly
+
+async function getBusinessConfig(env) {
+  const now = Date.now();
+  if (_configCache && (now - _configCacheTime) < CONFIG_CACHE_TTL_MS) return _configCache;
+  try {
+    const { data } = await sb(env, 'GET','business_config',null,'?id=eq.1&limit=1');
+    const config = data?.[0];
+    if (!config) {
+      console.error('  business_config row not found — using hardcoded defaults');
+      return DEFAULT_CONFIG;
+    }
+    _configCache = { ...DEFAULT_CONFIG, ...config }; // merge so a missing new column never breaks an old row
+    _configCacheTime = now;
+    return _configCache;
+  } catch(e) {
+    console.error('  business_config fetch failed, using hardcoded defaults:', e.message);
+    return DEFAULT_CONFIG;
+  }
+}
+
 // ── SMS via Twilio's REST API directly (no SDK) ─────────────────────────────────
 async function sendSMS(env, to, msg) {
   if (!to || !env.TWILIO_ACCOUNT_SID || !env.TWILIO_AUTH_TOKEN) return;
@@ -73,6 +124,7 @@ async function sendEmail(env, to, subject, text, html) {
   const fromAddr = env.EMAIL_FROM || env.EMAIL_FARM;
   if (!fromAddr) { console.warn('  Email skipped: no EMAIL_FROM configured'); return; }
   if (!env.RESEND_API_KEY) { console.warn('  Email skipped: no RESEND_API_KEY configured'); return; }
+  const config = await getBusinessConfig(env);
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -81,7 +133,7 @@ async function sendEmail(env, to, subject, text, html) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: `Stone Wall Angus <${fromAddr}>`,
+        from: `${config.business_name} <${fromAddr}>`,
         to: [to],
         subject,
         text,
@@ -100,12 +152,13 @@ function fmtPhone(raw) {
 }
 
 async function sendNewOrderAlert(env, order, items) {
+  const config = await getBusinessConfig(env);
   const itemList = items.map(i => `${i.name} x${i.qty||1}`).join(', ');
   const sms = `New Order: ${order.order_number}\n${order.customer_name} | ${order.customer_phone||order.customer_email}\nItems: ${itemList}\nPickup: ${order.pickup_date||'TBD'}`;
   await sendSMS(env, env.TWILIO_NOTIFY, sms);
   const email =
     `New order received.\n\nORDER: ${order.order_number}\nCustomer: ${order.customer_name}\nEmail: ${order.customer_email}\nPhone: ${order.customer_phone||'N/A'}\nPickup: ${order.pickup_date||'TBD'}\n${order.notes?'Notes: '+order.notes+'\n':''}\nItems:\n${items.map(i=>`  - ${i.name} x${i.qty||1}`).join('\n')}\n\nOpen the admin app to enter weights and send the invoice.`;
-  await sendEmail(env, env.EMAIL_FARM||'stonewallangus1@myactv.net', `New Order - ${order.order_number}`, email);
+  await sendEmail(env, env.EMAIL_FARM||config.email, `New Order - ${order.order_number}`, email);
 }
 
 // ── Internal alert: order paid online (staff wouldn't otherwise know a
@@ -140,6 +193,7 @@ async function createPayPalInvoiceLink(env, order, items, total) {
     console.warn('  PayPal not configured — using stub link');
     return { url: createStubPayPalLink(order, total), invoiceNumber: null };
   }
+  const config = await getBusinessConfig(env);
   try {
     // Only include a recipient name if we genuinely have both parts — an empty
     // surname (e.g. a single-word customer name) is accepted by the create-invoice
@@ -164,8 +218,8 @@ async function createPayPalInvoiceLink(env, order, items, total) {
     const createRes = await fetch(`${base}/v2/invoicing/invoices`, {
       method: 'POST', headers,
       body: JSON.stringify({
-        detail: { currency_code: 'USD', reference: order.order_number, note: `Stone Wall Angus order ${order.order_number}` },
-        invoicer: { business_name: 'Stone Wall Angus' },
+        detail: { currency_code: 'USD', reference: order.order_number, note: `${config.business_name} order ${order.order_number}` },
+        invoicer: { business_name: config.business_name },
         primary_recipients: [{ billing_info: { email_address: order.customer_email, ...(recipientName ? { name: recipientName } : {}) } }],
         items: invoiceItems,
       }),
@@ -212,7 +266,7 @@ function createStubPayPalLink(order, total) {
 }
 
 // ── HTML invoice email body (identical markup to server.js) ────────────────────
-function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypalInvoiceNumber) {
+function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypalInvoiceNumber, config) {
   const orderDate = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
   const rows = items.map(i => `
         <tr>
@@ -226,7 +280,7 @@ function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypal
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Invoice ${order.order_number} — Stone Wall Angus</title></head>
+<title>Invoice ${order.order_number} — ${config.business_name}</title></head>
 <body style="margin:0;padding:0;background-color:#F4F1EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4F1EA;padding:32px 16px;">
   <tr><td align="center">
@@ -234,12 +288,12 @@ function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypal
       <tr><td style="padding:28px 32px 20px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td valign="top">
-            <div style="display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;color:#6B1F1F;"><img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> Stone Wall Angus</div>
-            <div style="font-size:13px;color:#6B6B6B;margin-top:8px;line-height:1.5;">17719 Spielman Road, Fairplay, MD 21733<br>(240) 818-8317 &middot; stonewallangus1@myactv.net</div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;color:${config.brand_color};"><img src="${config.logo_url}" alt="${config.business_name}" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> ${config.business_name}</div>
+            <div style="font-size:13px;color:#6B6B6B;margin-top:8px;line-height:1.5;">${config.address_street}, ${config.address_city}, ${config.address_state} ${config.address_zip}<br>${config.phone} &middot; ${config.email}</div>
           </td>
           <td valign="top" align="right">
             <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#8A8A8A;text-transform:uppercase;">Invoice</div>
-            <div style="font-size:20px;font-weight:800;color:#6B1F1F;margin-top:4px;">${order.order_number}</div>
+            <div style="font-size:20px;font-weight:800;color:${config.brand_color};margin-top:4px;">${order.order_number}</div>
             ${paypalInvoiceNumber ? `<div style="font-size:11px;color:#8A8A8A;margin-top:2px;">PayPal Invoice: ${paypalInvoiceNumber}</div>` : ''}
             <div style="font-size:12px;color:#8A8A8A;margin-top:4px;">${orderDate}</div>
           </td>
@@ -254,7 +308,7 @@ function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypal
       </td></tr>
       <tr><td style="padding:20px 32px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:8px;overflow:hidden;border:1px solid #EAE6DE;">
-          <tr style="background-color:#6B1F1F;">
+          <tr style="background-color:${config.brand_color};">
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;">Cut</td>
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;text-align:center;">Weight</td>
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;text-align:center;">Rate</td>
@@ -266,7 +320,7 @@ function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypal
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td></td><td width="220">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
             <tr><td style="padding:6px 0;font-size:13px;color:#6B6B6B;">Subtotal</td><td style="padding:6px 0;font-size:13px;color:#1A1A1A;text-align:right;">$${subtotal.toFixed(2)}</td></tr>
-            <tr><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:16px;font-weight:800;color:#1A1A1A;">Total Due</td><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:18px;font-weight:800;color:#6B1F1F;text-align:right;">$${total.toFixed(2)}</td></tr>
+            <tr><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:16px;font-weight:800;color:#1A1A1A;">Total Due</td><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:18px;font-weight:800;color:${config.brand_color};text-align:right;">$${total.toFixed(2)}</td></tr>
           </table>
         </td></tr></table>
       </td></tr>
@@ -280,7 +334,7 @@ function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypal
         <span style="display:inline-block;padding:6px 16px;border-radius:20px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background-color:#EAF4E1;color:#4A7729;border:1px solid #C3DFA8;">Invoiced</span>
       </td></tr>${notesRow}
       <tr><td style="padding:20px 32px;background-color:#F9F7F2;border-top:1px solid #EAE6DE;">
-        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions about this invoice? Reply to this email or call (240) 818-8317.<br>Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
+        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions about this invoice? Reply to this email or call ${config.phone}.<br>${config.business_name} &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
       </td></tr>
     </table>
   </td></tr>
@@ -289,6 +343,7 @@ function buildInvoiceEmailHtml(order, items, subtotal, total, paypalLink, paypal
 }
 
 async function sendInvoiceNotification(env, order, items) {
+  const config = await getBusinessConfig(env);
   const subtotal  = items.reduce((s,i) => s + parseFloat(i.line_total||0), 0);
   const total     = subtotal;
   const firstName = (order.customer_name||'').split(' ')[0] || 'Customer';
@@ -310,18 +365,18 @@ async function sendInvoiceNotification(env, order, items) {
     `Dear ${firstName},\n\nYour order is weighed and your invoice is ready.\n\nORDER: ${order.order_number}${paypalInvoiceNumber?` (PayPal Invoice: ${paypalInvoiceNumber})`:''}\n\nINVOICE\n${lineItems}\n\n` +
     `Subtotal:  $${subtotal.toFixed(2)}\nShipping:  Free\nTOTAL DUE: $${total.toFixed(2)}\n\n` +
     `Pay online: ${payPageUrl}\n\n` +
-    `Please arrange payment before pickup: ${order.pickup_date||'TBD'}\nCall (240) 818-8317 or email stonewallangus1@myactv.net\n\nStone Wall Angus`;
-  const emailHtml = buildInvoiceEmailHtml(order, items, subtotal, total, payPageUrl, paypalInvoiceNumber);
+    `Please arrange payment before pickup: ${order.pickup_date||'TBD'}\nCall ${config.phone} or email ${config.email}\n\n${config.business_name}`;
+  const emailHtml = buildInvoiceEmailHtml(order, items, subtotal, total, payPageUrl, paypalInvoiceNumber, config);
 
-  await sendEmail(env, order.customer_email, `Invoice - Stone Wall Angus ${order.order_number}`, emailText, emailHtml);
+  await sendEmail(env, order.customer_email, `Invoice - ${config.business_name} ${order.order_number}`, emailText, emailHtml);
   if (order.sms_consent) {
-    const sms = `Invoice Ready - Stone Wall Angus\nOrder: ${order.order_number}\nTotal: $${total.toFixed(2)}\nPay securely: ${payPageUrl}\nQuestions? (240) 818-8317\n(Tip: save this number as "Stone Wall Angus" for easy reference!)`;
+    const sms = `Invoice Ready - ${config.business_name}\nOrder: ${order.order_number}\nTotal: $${total.toFixed(2)}\nPay securely: ${payPageUrl}\nQuestions? ${config.phone}\n(Tip: save this number as "${config.business_name}" for easy reference!)`;
     await sendSMS(env, fmtPhone(order.customer_phone), sms);
   }
 }
 
 // ── HTML "Ready for Pickup" email (identical markup to server.js) ──────────────
-function buildReadyPickupEmailHtml(order, items, total) {
+function buildReadyPickupEmailHtml(order, items, total, config) {
   const orderDate = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
   const rows = (items||[]).map(i => `
         <tr>
@@ -334,7 +389,7 @@ function buildReadyPickupEmailHtml(order, items, total) {
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Order Ready ${order.order_number} — Stone Wall Angus</title></head>
+<title>Order Ready ${order.order_number} — ${config.business_name}</title></head>
 <body style="margin:0;padding:0;background-color:#F4F1EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4F1EA;padding:32px 16px;">
   <tr><td align="center">
@@ -342,12 +397,12 @@ function buildReadyPickupEmailHtml(order, items, total) {
       <tr><td style="padding:28px 32px 20px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td valign="top">
-            <div style="display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;color:#6B1F1F;"><img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> Stone Wall Angus</div>
-            <div style="font-size:13px;color:#6B6B6B;margin-top:8px;line-height:1.5;">17719 Spielman Road, Fairplay, MD 21733<br>(240) 818-8317 &middot; stonewallangus1@myactv.net</div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;color:${config.brand_color};"><img src="${config.logo_url}" alt="${config.business_name}" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> ${config.business_name}</div>
+            <div style="font-size:13px;color:#6B6B6B;margin-top:8px;line-height:1.5;">${config.address_street}, ${config.address_city}, ${config.address_state} ${config.address_zip}<br>${config.phone} &middot; ${config.email}</div>
           </td>
           <td valign="top" align="right">
             <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#8A8A8A;text-transform:uppercase;">Order</div>
-            <div style="font-size:20px;font-weight:800;color:#6B1F1F;margin-top:4px;">${order.order_number}</div>
+            <div style="font-size:20px;font-weight:800;color:${config.brand_color};margin-top:4px;">${order.order_number}</div>
             <div style="font-size:12px;color:#8A8A8A;margin-top:4px;">${orderDate}</div>
           </td>
         </tr></table>
@@ -361,7 +416,7 @@ function buildReadyPickupEmailHtml(order, items, total) {
       </td></tr>
       <tr><td style="padding:20px 32px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:8px;overflow:hidden;border:1px solid #EAE6DE;">
-          <tr style="background-color:#6B1F1F;">
+          <tr style="background-color:${config.brand_color};">
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;">Cut</td>
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;text-align:center;">Weight</td>
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;text-align:right;">Amount</td>
@@ -371,22 +426,22 @@ function buildReadyPickupEmailHtml(order, items, total) {
       <tr><td style="padding:16px 32px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td></td><td width="220">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-            <tr><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:16px;font-weight:800;color:#1A1A1A;">Total Paid</td><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:18px;font-weight:800;color:#6B1F1F;text-align:right;">$${total.toFixed(2)}</td></tr>
+            <tr><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:16px;font-weight:800;color:#1A1A1A;">Total Paid</td><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:18px;font-weight:800;color:${config.brand_color};text-align:right;">$${total.toFixed(2)}</td></tr>
           </table>
         </td></tr></table>
       </td></tr>
       <tr><td style="padding:24px 32px 8px;">
         <div style="background-color:#E3F2FD;border:1px solid #90CAF9;border-radius:10px;padding:14px 16px;font-size:13px;color:#1A1A1A;line-height:1.6;">
           <strong style="color:#2471A3;">Pickup Location</strong><br>
-          17719 Spielman Road, Fairplay, MD 21733<br>
-          Questions? Call (240) 818-8317.
+          ${config.address_street}, ${config.address_city}, ${config.address_state} ${config.address_zip}<br>
+          Questions? Call ${config.phone}.
         </div>
       </td></tr>
       <tr><td style="padding:20px 32px 4px;">
         <span style="display:inline-block;padding:6px 16px;border-radius:20px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background-color:#E3F2FD;color:#2471A3;border:1px solid #90CAF9;">Ready for Pickup</span>
       </td></tr>${notesRow}
       <tr><td style="padding:20px 32px;background-color:#F9F7F2;border-top:1px solid #EAE6DE;">
-        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions about this order? Reply to this email or call (240) 818-8317.<br>Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
+        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions about this order? Reply to this email or call ${config.phone}.<br>${config.business_name} &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
       </td></tr>
     </table>
   </td></tr>
@@ -396,7 +451,7 @@ function buildReadyPickupEmailHtml(order, items, total) {
 
 // ── HTML "Completed Transaction" receipt (walk-in orders only — one combined
 //    notification instead of separate invoice + ready-for-pickup emails) ──────
-function buildWalkInReceiptEmailHtml(order, items, total) {
+function buildWalkInReceiptEmailHtml(order, items, total, config) {
   const orderDate = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
   const rows = items.map(i => `
         <tr>
@@ -410,7 +465,7 @@ function buildWalkInReceiptEmailHtml(order, items, total) {
 
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Receipt ${order.order_number} — Stone Wall Angus</title></head>
+<title>Receipt ${order.order_number} — ${config.business_name}</title></head>
 <body style="margin:0;padding:0;background-color:#F4F1EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4F1EA;padding:32px 16px;">
   <tr><td align="center">
@@ -418,12 +473,12 @@ function buildWalkInReceiptEmailHtml(order, items, total) {
       <tr><td style="padding:28px 32px 20px;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
           <td valign="top">
-            <div style="display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;color:#6B1F1F;"><img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> Stone Wall Angus</div>
-            <div style="font-size:13px;color:#6B6B6B;margin-top:8px;line-height:1.5;">17719 Spielman Road, Fairplay, MD 21733<br>(240) 818-8317 &middot; stonewallangus1@myactv.net</div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;color:${config.brand_color};"><img src="${config.logo_url}" alt="${config.business_name}" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> ${config.business_name}</div>
+            <div style="font-size:13px;color:#6B6B6B;margin-top:8px;line-height:1.5;">${config.address_street}, ${config.address_city}, ${config.address_state} ${config.address_zip}<br>${config.phone} &middot; ${config.email}</div>
           </td>
           <td valign="top" align="right">
             <div style="font-size:11px;font-weight:700;letter-spacing:1px;color:#8A8A8A;text-transform:uppercase;">Receipt</div>
-            <div style="font-size:20px;font-weight:800;color:#6B1F1F;margin-top:4px;">${order.order_number}</div>
+            <div style="font-size:20px;font-weight:800;color:${config.brand_color};margin-top:4px;">${order.order_number}</div>
             <div style="font-size:12px;color:#8A8A8A;margin-top:4px;">${orderDate}</div>
           </td>
         </tr></table>
@@ -436,7 +491,7 @@ function buildWalkInReceiptEmailHtml(order, items, total) {
       </td></tr>
       <tr><td style="padding:20px 32px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:8px;overflow:hidden;border:1px solid #EAE6DE;">
-          <tr style="background-color:#6B1F1F;">
+          <tr style="background-color:${config.brand_color};">
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;">Cut</td>
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;text-align:center;">Weight</td>
             <td style="padding:11px 24px;font-size:11px;font-weight:700;letter-spacing:1px;color:#FFFFFF;text-transform:uppercase;text-align:center;">Rate</td>
@@ -447,7 +502,7 @@ function buildWalkInReceiptEmailHtml(order, items, total) {
       <tr><td style="padding:16px 32px 0;">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td></td><td width="220">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-            <tr><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:16px;font-weight:800;color:#1A1A1A;">Total Paid</td><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:18px;font-weight:800;color:#6B1F1F;text-align:right;">$${total.toFixed(2)}</td></tr>
+            <tr><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:16px;font-weight:800;color:#1A1A1A;">Total Paid</td><td style="padding:10px 0 0;border-top:1.5px solid #1A1A1A;font-size:18px;font-weight:800;color:${config.brand_color};text-align:right;">$${total.toFixed(2)}</td></tr>
           </table>
         </td></tr></table>
       </td></tr>
@@ -455,7 +510,7 @@ function buildWalkInReceiptEmailHtml(order, items, total) {
         <span style="display:inline-block;padding:6px 16px;border-radius:20px;font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;background-color:#EAF4E1;color:#4A7729;border:1px solid #C3DFA8;">Paid in Full &middot; Complete</span>
       </td></tr>${notesRow}
       <tr><td style="padding:20px 32px;background-color:#F9F7F2;border-top:1px solid #EAE6DE;">
-        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Thank you for stopping by! Questions? Reply to this email or call (240) 818-8317.<br>Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
+        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Thank you for stopping by! Questions? Reply to this email or call ${config.phone}.<br>${config.business_name} &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
       </td></tr>
     </table>
   </td></tr>
@@ -466,17 +521,17 @@ function buildWalkInReceiptEmailHtml(order, items, total) {
 // ── Payment received confirmation (fires when a customer pays via the /pay
 //    page — distinct from the later "Ready for Pickup" notice, which still
 //    only fires once staff mark items as prepared) ─────────────────────────
-function buildPaymentReceivedEmailHtml(order, amount) {
+function buildPaymentReceivedEmailHtml(order, amount, config) {
   const firstName = (order.customer_name||'').split(' ')[0] || 'there';
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Payment Received — Stone Wall Angus</title></head>
+<title>Payment Received — ${config.business_name}</title></head>
 <body style="margin:0;padding:0;background-color:#F4F1EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4F1EA;padding:32px 16px;">
   <tr><td align="center">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#FFFFFF;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);">
       <tr><td style="padding:32px 32px 8px;text-align:center;">
-        <div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:19px;font-weight:800;color:#6B1F1F;"><img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> Stone Wall Angus</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:8px;font-size:19px;font-weight:800;color:${config.brand_color};"><img src="${config.logo_url}" alt="${config.business_name}" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> ${config.business_name}</div>
       </td></tr>
       <tr><td style="padding:16px 32px 8px;text-align:center;">
         <div style="font-size:34px;margin-bottom:8px;">✅</div>
@@ -484,7 +539,7 @@ function buildPaymentReceivedEmailHtml(order, amount) {
         <div style="font-size:14px;color:#6B6B6B;line-height:1.6;max-width:440px;margin:0 auto;">We've received your payment of $${amount.toFixed(2)} for order ${order.order_number}. Your beef is paid in full — we'll text/email you again once it's weighed, packed, and ready for pickup.</div>
       </td></tr>
       <tr><td style="padding:20px 32px;background-color:#F9F7F2;border-top:1px solid #EAE6DE;margin-top:20px;">
-        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions? Reply to this email or call (240) 818-8317.<br>Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
+        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions? Reply to this email or call ${config.phone}.<br>${config.business_name} &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
       </td></tr>
     </table>
   </td></tr>
@@ -493,18 +548,20 @@ function buildPaymentReceivedEmailHtml(order, amount) {
 }
 
 async function sendPaymentReceivedNotification(env, order, amount) {
+  const config = await getBusinessConfig(env);
   const firstName = (order.customer_name||'').split(' ')[0] || 'Customer';
-  const emailText = `Hi ${firstName},\n\nWe've received your payment of $${amount.toFixed(2)} for order ${order.order_number}. Paid in full — we'll notify you again once it's ready for pickup.\n\nStone Wall Angus\n(240) 818-8317`;
-  const emailHtml = buildPaymentReceivedEmailHtml(order, amount);
-  await sendEmail(env, order.customer_email, `Payment Received - Stone Wall Angus ${order.order_number}`, emailText, emailHtml);
+  const emailText = `Hi ${firstName},\n\nWe've received your payment of $${amount.toFixed(2)} for order ${order.order_number}. Paid in full — we'll notify you again once it's ready for pickup.\n\n${config.business_name}\n${config.phone}`;
+  const emailHtml = buildPaymentReceivedEmailHtml(order, amount, config);
+  await sendEmail(env, order.customer_email, `Payment Received - ${config.business_name} ${order.order_number}`, emailText, emailHtml);
 
   if (order.sms_consent) {
-    const sms = `Payment received! Order ${order.order_number} is paid in full ($${amount.toFixed(2)}). We'll text you again once it's ready for pickup.\nQuestions? (240) 818-8317`;
+    const sms = `Payment received! Order ${order.order_number} is paid in full ($${amount.toFixed(2)}). We'll text you again once it's ready for pickup.\nQuestions? ${config.phone}`;
     await sendSMS(env, fmtPhone(order.customer_phone), sms);
   }
 }
 
 async function sendWalkInReceipt(env, order) {
+  const config = await getBusinessConfig(env);
   let items = [];
   try { const r = await sb(env, 'GET','order_items',null,`?order_id=eq.${order.id}&order=id.asc`); items = r.data || []; }
   catch(e) { console.warn('  Could not load items for receipt:', e.message); }
@@ -513,19 +570,22 @@ async function sendWalkInReceipt(env, order) {
   const itemList = items.map(i => `${i.product_name} (${i.weight_lbs||0} lbs @ $${parseFloat(i.actual_price_lb||i.price_per_unit||0).toFixed(2)}/lb)`).join(', ');
 
   const emailText =
-    `Thank you, ${firstName}!\n\nHere's your receipt for order ${order.order_number}:\n\n${items.map(i=>`  ${i.product_name} - ${i.weight_lbs||0} lbs = $${parseFloat(i.line_total||0).toFixed(2)}`).join('\n')}\n\nTOTAL PAID: $${total.toFixed(2)}\n\nPaid in full — thanks for stopping by!\n\nStone Wall Angus\n(240) 818-8317`;
-  const emailHtml = buildWalkInReceiptEmailHtml(order, items, total);
-  await sendEmail(env, order.customer_email, `Receipt - Stone Wall Angus ${order.order_number}`, emailText, emailHtml);
+    `Thank you, ${firstName}!\n\nHere's your receipt for order ${order.order_number}:\n\n${items.map(i=>`  ${i.product_name} - ${i.weight_lbs||0} lbs = $${parseFloat(i.line_total||0).toFixed(2)}`).join('\n')}\n\nTOTAL PAID: $${total.toFixed(2)}\n\nPaid in full — thanks for stopping by!\n\n${config.business_name}\n${config.phone}`;
+  const emailHtml = buildWalkInReceiptEmailHtml(order, items, total, config);
+  await sendEmail(env, order.customer_email, `Receipt - ${config.business_name} ${order.order_number}`, emailText, emailHtml);
 
   if (order.sms_consent) {
-    const sms = `Thank you! Receipt for order ${order.order_number}\n${itemList?'Items: '+itemList+'\n':''}TOTAL PAID: $${total.toFixed(2)}\nPaid in full. Thanks for stopping by Stone Wall Angus!\nQuestions? (240) 818-8317\n(Tip: save this number as "Stone Wall Angus" for easy reference!)`;
+    const sms = `Thank you! Receipt for order ${order.order_number}\n${itemList?'Items: '+itemList+'\n':''}TOTAL PAID: $${total.toFixed(2)}\nPaid in full. Thanks for stopping by ${config.business_name}!\nQuestions? ${config.phone}\n(Tip: save this number as "${config.business_name}" for easy reference!)`;
     await sendSMS(env, fmtPhone(order.customer_phone), sms);
   }
 }
 
 async function sendReadyForPickup(env, order) {
+  const config = await getBusinessConfig(env);
+  const fullAddress = `${config.address_street}, ${config.address_city}, ${config.address_state} ${config.address_zip}`;
+  const shortAddress = `${config.address_street}, ${config.address_city} ${config.address_state}`;
   if (order.sms_consent) {
-    const sms = `Your Stone Wall Angus order is ready for pickup!\nOrder: ${order.order_number}\n${order.pickup_date?'Date: '+order.pickup_date+'\n':''}17719 Spielman Rd, Fairplay MD\nQuestions? (240) 818-8317`;
+    const sms = `Your ${config.business_name} order is ready for pickup!\nOrder: ${order.order_number}\n${order.pickup_date?'Date: '+order.pickup_date+'\n':''}${shortAddress}\nQuestions? ${config.phone}`;
     await sendSMS(env, fmtPhone(order.customer_phone), sms);
   }
 
@@ -536,23 +596,23 @@ async function sendReadyForPickup(env, order) {
 
   const firstName = (order.customer_name||'').split(' ')[0] || 'Customer';
   const emailText =
-    `Dear ${firstName},\n\nYour order is ready for pickup!\n\nOrder: ${order.order_number}\n${order.pickup_date?'Pickup Date: '+order.pickup_date+'\n':''}Location: 17719 Spielman Road, Fairplay, MD 21733\n\nSee you soon!\n\nStone Wall Angus\n(240) 818-8317`;
-  const emailHtml = buildReadyPickupEmailHtml(order, items, total);
-  await sendEmail(env, order.customer_email, `Order Ready for Pickup - Stone Wall Angus ${order.order_number}`, emailText, emailHtml);
+    `Dear ${firstName},\n\nYour order is ready for pickup!\n\nOrder: ${order.order_number}\n${order.pickup_date?'Pickup Date: '+order.pickup_date+'\n':''}Location: ${fullAddress}\n\nSee you soon!\n\n${config.business_name}\n${config.phone}`;
+  const emailHtml = buildReadyPickupEmailHtml(order, items, total, config);
+  await sendEmail(env, order.customer_email, `Order Ready for Pickup - ${config.business_name} ${order.order_number}`, emailText, emailHtml);
 }
 
 // ── HTML "Leave us a review" email (sent when an order is marked Fulfilled) ────
-function buildReviewRequestEmailHtml(order, googleUrl, facebookUrl) {
+function buildReviewRequestEmailHtml(order, googleUrl, facebookUrl, config) {
   const firstName = (order.customer_name||'').split(' ')[0] || 'there';
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>How did we do? — Stone Wall Angus</title></head>
+<title>How did we do? — ${config.business_name}</title></head>
 <body style="margin:0;padding:0;background-color:#F4F1EA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#F4F1EA;padding:32px 16px;">
   <tr><td align="center">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background-color:#FFFFFF;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06);">
       <tr><td style="padding:32px 32px 8px;text-align:center;">
-        <div style="display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;color:#6B1F1F;"><img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> Stone Wall Angus</div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:19px;font-weight:800;color:${config.brand_color};"><img src="${config.logo_url}" alt="${config.business_name}" width="36" height="28" style="height:28px;width:36px;display:inline-block;vertical-align:middle;"/> ${config.business_name}</div>
       </td></tr>
       <tr><td style="padding:16px 32px 8px;text-align:center;">
         <div style="font-size:34px;margin-bottom:8px;">🙏</div>
@@ -560,7 +620,7 @@ function buildReviewRequestEmailHtml(order, googleUrl, facebookUrl) {
         <div style="font-size:14px;color:#6B6B6B;line-height:1.6;max-width:440px;margin:0 auto;">We hope you're enjoying your beef from order ${order.order_number}. If you have a minute, a quick review helps our small family farm more than you know.</div>
       </td></tr>
       <tr><td style="padding:24px 32px 8px;" align="center">
-        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:8px;background-color:#6B1F1F;">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:8px;background-color:${config.brand_color};">
           <a href="${googleUrl}" target="_blank" style="display:inline-block;padding:14px 40px;font-size:15px;font-weight:800;color:#fff;text-decoration:none;">Leave a Google Review</a>
         </td></tr></table>
       </td></tr>
@@ -568,7 +628,7 @@ function buildReviewRequestEmailHtml(order, googleUrl, facebookUrl) {
         <a href="${facebookUrl}" target="_blank" style="font-size:13px;color:#2471A3;text-decoration:underline;">or leave a review on Facebook</a>
       </td></tr>` : ''}
       <tr><td style="padding:20px 32px;background-color:#F9F7F2;border-top:1px solid #EAE6DE;">
-        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions about your order? Reply to this email or call (240) 818-8317.<br>Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
+        <div style="font-size:12px;color:#8A8A8A;text-align:center;line-height:1.6;">Questions about your order? Reply to this email or call ${config.phone}.<br>${config.business_name} &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
       </td></tr>
     </table>
   </td></tr>
@@ -577,17 +637,18 @@ function buildReviewRequestEmailHtml(order, googleUrl, facebookUrl) {
 }
 
 async function sendReviewRequest(env, order) {
-  const googleUrl = env.GOOGLE_REVIEW_URL || 'https://g.page/r/CSmYIWx9gpa4EBM/review';
-  const facebookUrl = env.FACEBOOK_URL || 'https://www.facebook.com/stonewallangus/reviews';
+  const config = await getBusinessConfig(env);
+  const googleUrl = env.GOOGLE_REVIEW_URL || config.google_review_url;
+  const facebookUrl = env.FACEBOOK_URL || config.facebook_url;
   const firstName = (order.customer_name||'').split(' ')[0] || 'there';
 
   const emailText =
-    `Hi ${firstName},\n\nThanks for your order (${order.order_number})! If you have a minute, we'd really appreciate a review:\n\nGoogle: ${googleUrl}\nFacebook: ${facebookUrl}\n\nThank you for supporting our family farm!\n\nStone Wall Angus\n(240) 818-8317`;
-  const emailHtml = buildReviewRequestEmailHtml(order, googleUrl, facebookUrl);
-  await sendEmail(env, order.customer_email, `How did we do? - Stone Wall Angus`, emailText, emailHtml);
+    `Hi ${firstName},\n\nThanks for your order (${order.order_number})! If you have a minute, we'd really appreciate a review:\n\nGoogle: ${googleUrl}\nFacebook: ${facebookUrl}\n\nThank you for supporting our family farm!\n\n${config.business_name}\n${config.phone}`;
+  const emailHtml = buildReviewRequestEmailHtml(order, googleUrl, facebookUrl, config);
+  await sendEmail(env, order.customer_email, `How did we do? - ${config.business_name}`, emailText, emailHtml);
 
   if (order.sms_consent) {
-    const sms = `Thanks for your order from Stone Wall Angus! If you enjoyed it, we'd love a quick review: ${googleUrl}\nReply STOP to opt out.`;
+    const sms = `Thanks for your order from ${config.business_name}! If you enjoyed it, we'd love a quick review: ${googleUrl}\nReply STOP to opt out.`;
     await sendSMS(env, fmtPhone(order.customer_phone), sms);
   }
 }
@@ -640,10 +701,11 @@ app.get('/api/health', async (c) => {
 app.get('/api/pay/:orderNumber', async (c) => {
   try {
     const orderNumber = decodeURIComponent(c.req.param('orderNumber'));
+    const config = await getBusinessConfig(c.env);
     const { data } = await sb(c.env, 'GET','orders',null,`?order_number=eq.${encodeURIComponent(orderNumber)}&limit=1`);
     const order = data?.[0];
     if (!order || !order.paypal_pay_url) {
-      return c.text('Payment link not found. Please contact Stone Wall Angus at (240) 818-8317.', 404);
+      return c.text(`Payment link not found. Please contact ${config.business_name} at ${config.phone}.`, 404);
     }
     // Deliberately NOT an HTTP 302 here. Safari/WebKit's Intelligent Tracking
     // Prevention applies "bounce tracking" cookie restrictions to server-side
@@ -659,7 +721,7 @@ app.get('/api/pay/:orderNumber', async (c) => {
 <meta http-equiv="refresh" content="0;url=${order.paypal_pay_url}">
 <style>body{font-family:-apple-system,sans-serif;background:#F4F1EA;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;color:#333;}
 .box{text-align:center;padding:24px;}
-a{color:#6B1F1F;font-weight:700;}</style>
+a{color:${config.brand_color};font-weight:700;}</style>
 </head><body>
 <div class="box">
   <p>Redirecting you to PayPal to complete payment…</p>
@@ -669,7 +731,7 @@ a{color:#6B1F1F;font-weight:700;}</style>
 </body></html>`);
   } catch(e) {
     console.error('  /api/pay redirect failed:', e.message);
-    return c.text('Something went wrong loading your payment link. Please contact Stone Wall Angus at (240) 818-8317.', 500);
+    return c.text(`Something went wrong loading your payment link. Please contact ${DEFAULT_CONFIG.business_name} at ${DEFAULT_CONFIG.phone}.`, 500);
   }
 });
 
@@ -691,21 +753,22 @@ async function getOrderTotal(env, orderNumber) {
 
 app.get('/pay/:orderNumber', async (c) => {
   const orderNumber = decodeURIComponent(c.req.param('orderNumber'));
+  const config = await getBusinessConfig(c.env);
   const found = await getOrderTotal(c.env, orderNumber);
   if (!found || !found.order) {
-    return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;"><h2>Order not found</h2><p>Please contact Stone Wall Angus at (240) 818-8317.</p></body></html>`, 404);
+    return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;"><h2>Order not found</h2><p>Please contact ${config.business_name} at ${config.phone}.</p></body></html>`, 404);
   }
   const { order, items, total } = found;
   if (order.is_paid) {
-    return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;color:#6B1F1F;"><h2>✅ This order is already paid in full</h2><p>Order ${order.order_number} — Total: $${total.toFixed(2)}</p></body></html>`);
+    return c.html(`<!DOCTYPE html><html><body style="font-family:sans-serif;text-align:center;padding:60px 20px;color:${config.brand_color};"><h2>✅ This order is already paid in full</h2><p>Order ${order.order_number} — Total: $${total.toFixed(2)}</p></body></html>`);
   }
   const itemRows = items.map(i => `<tr><td style="padding:8px 0;">${i.product_name}</td><td style="padding:8px 0;text-align:right;color:#666;">${i.weight_lbs||0} lb</td><td style="padding:8px 0;text-align:right;font-weight:700;">$${parseFloat(i.line_total||0).toFixed(2)}</td></tr>`).join('');
 
   return c.html(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pay Invoice ${order.order_number} — Stone Wall Angus</title>
+<title>Pay Invoice ${order.order_number} — ${config.business_name}</title>
 <style>
-  :root{--green:#6B1F1F;--bg:#F4F1EA;}
+  :root{--green:${config.brand_color};--bg:#F4F1EA;}
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1A1A1A;}
   .wrap{max-width:480px;margin:0 auto;padding:32px 20px 60px;}
@@ -723,7 +786,7 @@ app.get('/pay/:orderNumber', async (c) => {
 </head>
 <body>
 <div class="wrap">
-  <div class="brand" style="display:flex;align-items:center;justify-content:center;gap:8px;"><img src="https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png" alt="Stone Wall Angus" style="height:26px;width:auto;"/> Stone Wall Angus</div>
+  <div class="brand" style="display:flex;align-items:center;justify-content:center;gap:8px;"><img src="${config.logo_url}" alt="${config.business_name}" style="height:26px;width:auto;"/> ${config.business_name}</div>
   <div class="card">
     <h1>Pay Your Invoice</h1>
     <div class="order-num">Order ${order.order_number}</div>
@@ -787,11 +850,11 @@ if (window.paypal && window.paypal.Buttons) {
     },
     onError: (err) => {
       console.error(err);
-      showStatus('Something went wrong. Please try again or call (240) 818-8317.', 'error');
+      showStatus('Something went wrong. Please try again or call ${config.phone}.', 'error');
     },
   }).render('#paypal-buttons');
 } else {
-  showStatus('Could not load the payment form. Please refresh the page or call (240) 818-8317.', 'error');
+  showStatus('Could not load the payment form. Please refresh the page or call ${config.phone}.', 'error');
 }
 </script>
 </body></html>`);
@@ -875,30 +938,76 @@ app.get('/api/inventory', async (c) => {
   const { status, data } = await sb(c.env, 'GET','inventory',null,`?order=product_id.asc&limit=${limit}`);
   return c.json(data, status);
 });
-app.patch('/api/inventory/:id', async (c) => {
+app.patch('/api/inventory/:id', requireAdmin, async (c) => {
+  const productId = c.req.param('id');
   const body = await c.req.json();
-  const { status, data } = await sb(c.env, 'PATCH','inventory',{...body,last_updated:new Date().toISOString()},`?product_id=eq.${c.req.param('id')}`);
-  return c.json(data, status);
+  // Stock is tracked in whole units, not fractional — round here centrally
+  // so every caller (manual edits, wholesale receiving, order fulfillment,
+  // customer sale scans) gets this enforced regardless of what they compute.
+  if (body.stock != null) body.stock = Math.round(parseFloat(body.stock));
+
+  // Fetch current values first, so we can log what actually changed —
+  // and so the response can tell the frontend exactly what changed for a
+  // descriptive toast message, not just "saved".
+  const { data: existing } = await sb(c.env, 'GET','inventory',null,`?product_id=eq.${productId}&limit=1`);
+  const before = existing?.[0] || {};
+
+  const { status, data } = await sb(c.env, 'PATCH','inventory',{...body,last_updated:new Date().toISOString()},`?product_id=eq.${productId}`);
+
+  // Log an audit entry per changed field. Best-effort — a logging failure
+  // should never block the actual inventory update from succeeding.
+  if (status>=200 && status<300) {
+    const changedBy = c.get('adminUser');
+    const productName = before.product_name || (data?.[0]?.product_name) || '';
+    const auditRows = Object.keys(body)
+      .filter(field => field !== 'last_updated')
+      .map(field => ({
+        product_id: parseInt(productId),
+        product_name: productName,
+        field_name: field,
+        old_value: before[field] != null ? String(before[field]) : null,
+        new_value: body[field] != null ? String(body[field]) : null,
+        changed_by: changedBy,
+      }));
+    if (auditRows.length) {
+      try { await sb(c.env, 'POST','inventory_audit_log',auditRows); }
+      catch(auditErr) { console.error('  Audit log write failed (inventory update itself still succeeded):', auditErr.message); }
+    }
+  }
+
+  return c.json({ data, before }, status);
 });
 
 app.get('/api/bookings', async (c) => {
   const { status, data } = await sb(c.env, 'GET','bookings',null,'?order=created_at.desc&limit=200');
   return c.json(data, status);
 });
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function formatDayList(dayNumbers) {
+  const names = dayNumbers.map(d => DAY_NAMES[d] + 's');
+  if (names.length <= 1) return names[0] || '';
+  return names.slice(0,-1).join(', ') + ' and ' + names[names.length-1];
+}
+
 app.post('/api/bookings', async (c) => {
   const body = await c.req.json();
   if (!body.first_name || !body.email) return c.json({ error: 'first_name and email required' }, 400);
-  // Visits restricted to Wednesdays/Saturdays, 8:00-10:00 AM only.
+  const config = await getBusinessConfig(c.env);
+  // Visit days/hours are configurable per business — see business_config.
   if (body.visit_date) {
     const [y,m,d] = body.visit_date.split('-').map(Number);
     const day = new Date(y, (m||1)-1, d).getDay();
-    if (day !== 3 && day !== 6) {
-      return c.json({ error: 'Visits are only available Wednesdays and Saturdays. Please choose one of those days.' }, 400);
+    if (!config.visit_days.includes(day)) {
+      return c.json({ error: `Visits are only available ${formatDayList(config.visit_days)}. Please choose one of those days.` }, 400);
     }
   }
-  const allowedTimeSlots = ['8:00 AM','8:30 AM','9:00 AM','9:30 AM','10:00 AM'];
-  if (body.time_slot && !allowedTimeSlots.includes(body.time_slot)) {
-    return c.json({ error: 'Visits are only available between 8:00 AM and 10:00 AM.' }, 400);
+  if (body.time_slot) {
+    const [, hourStr, meridiem] = body.time_slot.match(/(\d+):\d+\s*(AM|PM)/i) || [];
+    let hour = parseInt(hourStr, 10);
+    if (meridiem && meridiem.toUpperCase()==='PM' && hour !== 12) hour += 12;
+    if (isNaN(hour) || hour < config.visit_hour_start || hour > config.visit_hour_end) {
+      return c.json({ error: `Visits are only available between ${config.visit_hour_start}:00 and ${config.visit_hour_end}:00.` }, 400);
+    }
   }
   const { status, data } = await sb(c.env, 'POST','bookings',body);
   if (status>=200 && status<300) {
@@ -917,13 +1026,14 @@ app.post('/api/orders', async (c) => {
   const body = await c.req.json();
   const { items } = body;
   if (!items || !items.length) return c.json({ error: 'items required' }, 400);
-  // Online orders only — restrict pickup to Wednesdays/Saturdays. Not applied
-  // to admin-created manual/walk-in orders, which don't have this constraint.
+  const config = await getBusinessConfig(c.env);
+  // Online orders only — restrict pickup to configured pickup days. Not
+  // applied to admin-created manual/walk-in orders, which don't have this constraint.
   if (body.order_source !== 'manual' && body.pickup_date) {
     const [y,m,d] = body.pickup_date.split('-').map(Number);
     const day = new Date(y, (m||1)-1, d).getDay();
-    if (day !== 3 && day !== 6) {
-      return c.json({ error: 'Pickup is only available Wednesdays and Saturdays. Please choose one of those days.' }, 400);
+    if (!config.pickup_days.includes(day)) {
+      return c.json({ error: `Pickup is only available ${formatDayList(config.pickup_days)}. Please choose one of those days.` }, 400);
     }
   }
   const orderRow = { ...body, order_source: body.order_source || 'online' };
@@ -1109,7 +1219,7 @@ async function deductStockForOrderItems(env, orderId) {
     const product = byId.get(String(item.product_id));
     if (!product || product.stock == null) continue; // don't create a stock value out of nowhere for untracked items
     const qty = parseFloat(item.weight_lbs);
-    const newStock = Math.max(0, parseFloat(product.stock) - qty);
+    const newStock = Math.round(Math.max(0, parseFloat(product.stock) - qty));
     await sb(env, 'PATCH','inventory',{stock:newStock},`?product_id=eq.${item.product_id}`);
   }
 }
