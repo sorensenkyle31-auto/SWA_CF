@@ -938,6 +938,7 @@ function closeMenu(){document.getElementById('drawer').classList.remove('open');
 /* SHOP */
 /* liveItems: populated from DB — drives the shop and cart */
 let liveItems=[];
+let categoryOrderConfig = ['Beef','Pork','Dairy']; // overridden by business_config once loaded
 
 
 /* EASY IMAGE OVERRIDES — the ONLY place to add/edit a product image.
@@ -1042,7 +1043,7 @@ function renderShop(){
   // Group by category in a fixed order (Steaks, Pork, Dairy), alphabetical
   // within each group. Anything with an unrecognized/missing category still
   // shows, grouped together at the end, rather than being silently dropped.
-  const categoryOrder = ['Beef','Pork','Dairy'];
+  const categoryOrder = categoryOrderConfig;
   const byCategory = {};
   categoryOrder.forEach(c => byCategory[c] = []);
   const other = [];
@@ -1360,6 +1361,13 @@ async function loadBusinessConfig(){
     const mapLink = document.getElementById('cfg-map-link');
     if(mapLink && cfg.address_street){
       mapLink.href = 'https://maps.google.com/?q='+encodeURIComponent(`${cfg.address_street} ${cfg.address_city} ${cfg.address_state}`);
+    }
+
+    // Category sort order — re-render the shop if it already rendered with
+    // the default order before this config finished loading.
+    if(Array.isArray(cfg.category_order) && cfg.category_order.length){
+      categoryOrderConfig = cfg.category_order;
+      if(liveItems.length) renderShop();
     }
   }catch(e){
     console.warn('Business config load failed, using page defaults:', e.message);

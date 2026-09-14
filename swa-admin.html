@@ -402,6 +402,33 @@ let isPaid        = false;
 let itemsPrepared = false;
 let manualInventory = [];
 let miInventory = [];
+let businessConfig = {
+  business_name: 'Stone Wall Angus', phone: '(240) 818-8317', email: 'stonewallangus1@myactv.net',
+  address_street: '17719 Spielman Road', address_city: 'Fairplay', address_state: 'MD', address_zip: '21733',
+  logo_url: 'https://kwwacoafkttxwfrgtkmd.supabase.co/storage/v1/object/public/SWA/img/StoneWallAngus_Thumb.png',
+  category_order: ['Beef','Pork','Dairy'],
+}; // overridden by /api/business-config once loaded — these are just safe fallbacks
+
+async function loadBusinessConfig(){
+  try{
+    // Plain fetch, not the api() wrapper — this is a public route and needs
+    // to work on the login screen too, before any admin token exists.
+    const r = await fetch(API+'/business-config');
+    if(!r.ok) return;
+    const cfg = await r.json();
+    businessConfig = {...businessConfig, ...cfg};
+
+    const loginIcon = document.querySelector('.login-icon');
+    if(loginIcon && cfg.logo_url){ loginIcon.src = cfg.logo_url; loginIcon.alt = cfg.business_name||loginIcon.alt; }
+    const loginTitle = document.querySelector('.login-title');
+    if(loginTitle && cfg.business_name) loginTitle.textContent = cfg.business_name;
+
+    if(Array.isArray(cfg.category_order) && cfg.category_order.length && miInventory.length) renderManageInventory();
+  }catch(e){
+    console.warn('Business config load failed, using defaults:', e.message);
+  }
+}
+
 
 async function openManageInventory(){
   document.getElementById('mi-search').value = '';
@@ -433,7 +460,7 @@ function renderManageInventory(){
     return;
   }
 
-  const categoryOrder = ['Beef','Pork','Dairy'];
+  const categoryOrder = businessConfig.category_order;
   const byCategory = {}; categoryOrder.forEach(c => byCategory[c] = []);
   const other = [];
   filtered.forEach(p => {
@@ -1235,8 +1262,8 @@ function buildPrintableInvoiceHtml(o){
   <body>
     <div class="hdr">
       <div>
-        <div class="farm">🐄 Stone Wall Angus</div>
-        <div class="farm-sub">17719 Spielman Road, Fairplay, MD 21733<br>(240) 818-8317 &middot; stonewallangus1@myactv.net</div>
+        <div class="farm">🐄 ${businessConfig.business_name}</div>
+        <div class="farm-sub">${businessConfig.address_street}, ${businessConfig.address_city}, ${businessConfig.address_state} ${businessConfig.address_zip}<br>${businessConfig.phone} &middot; ${businessConfig.email}</div>
       </div>
       <div>
         <div class="order-num">${o.orderNum}</div>
@@ -1257,7 +1284,7 @@ function buildPrintableInvoiceHtml(o){
       </table>
     </div>
     ${o.notes?`<div class="notes">Notes: ${escapeHtml(o.notes)}</div>`:''}
-    <div class="foot">Stone Wall Angus &middot; Family-owned since 1989 &middot; Fairplay, MD</div>
+    <div class="foot">${businessConfig.business_name} &middot; Family-owned since 1989 &middot; ${businessConfig.address_city}, ${businessConfig.address_state}</div>
   </body></html>`;
 }
 
@@ -1518,6 +1545,7 @@ async function setStatus(s){
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
+loadBusinessConfig();
 if(adminToken){
   document.getElementById('user-label').textContent='👤 '+(adminUsername||'admin');
   showView('view-list');loadOrders();startOrdersPolling();
