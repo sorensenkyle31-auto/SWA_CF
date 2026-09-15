@@ -391,7 +391,13 @@ button{cursor:pointer;border:none;background:none;}
 <div class="toast" id="toast"></div>
 
 <script>
-const API='https://api.stonewallangus.com/api';
+function deriveApiUrl(){
+  // Same derivation as the customer-facing site — see that file's comment
+  // for the reasoning.
+  const host = window.location.hostname.replace(/^(app\.|www\.)/, '');
+  return `https://api.${host}/api`;
+}
+const API=deriveApiUrl();
 let adminToken    = sessionStorage.getItem('swa_token')||null;
 let adminUsername = sessionStorage.getItem('swa_user') ||null;
 let currentOrder  = null;

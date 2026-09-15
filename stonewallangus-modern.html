@@ -1307,7 +1307,15 @@ async function bookVisit(){
 function toast(msg){const t=document.getElementById('toast');t.innerHTML=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3200);}
 
 /* PROXY */
-const API='https://api.stonewallangus.com/api';
+function deriveApiUrl(){
+  // Derive the API domain from whatever domain this page is actually being
+  // served on, rather than hardcoding Stone Wall Angus's own API domain —
+  // this is what makes the same frontend code work correctly for any tenant
+  // deployed to their own domain, each resolving to their own API/tenant.
+  const host = window.location.hostname.replace(/^(app\.|www\.)/, '');
+  return `https://api.${host}/api`;
+}
+const API=deriveApiUrl();
 function apiFetch(path, opts={}){
   return fetch(API+path, opts);
 }

@@ -732,6 +732,24 @@ async function requireAdmin(c, next) {
   await next();
 }
 
+// ── Platform-level admin (Kyle, as the platform operator, not a tenant's
+//    staff) — deliberately a separate, simpler mechanism from requireAdmin.
+//    Building a full platform-super-admin role system would be overkill for
+//    a single-operator platform right now; a dedicated secret is proportional
+//    to the actual need and easy to upgrade to something fuller later if a
+//    second platform operator ever exists.
+async function requirePlatformAdmin(c, next) {
+  const secret = c.req.header('x-platform-secret');
+  if (!c.env.PLATFORM_ADMIN_SECRET) {
+    console.error('  PLATFORM_ADMIN_SECRET not configured — refusing platform-admin request');
+    return c.json({ error: 'Platform administration is not configured.' }, 500);
+  }
+  if (!secret || !timingSafeEqual(secret, c.env.PLATFORM_ADMIN_SECRET)) {
+    return c.json({ error: 'Not authenticated' }, 401);
+  }
+  await next();
+}
+
 // ── Routes ───────────────────────────────────────────────────────────────────
 // ── Public business configuration endpoint ──────────────────────────────────
 // Lets the static frontend pages (which have no server-side templating of
@@ -1155,6 +1173,18 @@ function timingSafeEqual(a, b) {
 // ── Password hashing (PBKDF2 via Web Crypto — native to Workers) ───────────
 const PBKDF2_ITERATIONS = 100000;
 
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const derivedBits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    keyMaterial, 256
+  );
+  const hashHex = [...new Uint8Array(derivedBits)].map(b => b.toString(16).padStart(2,'0')).join('');
+  const saltHex = [...salt].map(b => b.toString(16).padStart(2,'0')).join('');
+  return `${PBKDF2_ITERATIONS}:${saltHex}:${hashHex}`;
+}
+
 async function verifyPassword(password, stored) {
   const [iterationsStr, saltHex, hashHex] = (stored||'').split(':');
   if (!iterationsStr || !saltHex || !hashHex) return false;
@@ -1225,6 +1255,94 @@ app.post('/api/admin/scan-customer-sale', requireAdmin, async (c) => {
   } catch(e) {
     return c.json({ error: e.message }, 500);
   }
+});
+
+// ── Platform: tenant provisioning ───────────────────────────────────────────
+// Automates what would otherwise be hand-written SQL: creating a tenant
+// record, its business_config, and its first staff account together. Note
+// this does NOT set up Cloudflare domain binding or third-party credentials
+// (Twilio/PayPal/Resend) — those remain separate, manual steps for now (see
+// the roadmap item on per-tenant third-party credentials).
+app.post('/api/platform/create-tenant', requirePlatformAdmin, async (c) => {
+  const body = await c.req.json().catch(()=>({}));
+  const { tenant_name, frontend_domain, business_config, admin_username, admin_password } = body;
+
+  if (!tenant_name || !frontend_domain) return c.json({ error: 'tenant_name and frontend_domain are required (e.g. "greenvalleyproduce.com" — just the customer-facing domain, not the api. one)' }, 400);
+  if (!admin_username || !admin_password) return c.json({ error: 'admin_username and admin_password are required' }, 400);
+  if (!business_config?.business_name || !business_config?.phone || !business_config?.email) {
+    return c.json({ error: 'business_config.business_name, .phone, and .email are required — everything else in business_config has a reasonable default' }, 400);
+  }
+  // Derive the API domain the same way the frontend does (deriveApiUrl in
+  // both HTML files) — keeping this in one place/convention so the two
+  // sides can't drift out of sync with each other.
+  const strippedFrontendDomain = frontend_domain.replace(/^(app\.|www\.)/, '');
+  const domain = `api.${strippedFrontendDomain}`;
+
+  // Check domain and username uniqueness up front — clearer error than a
+  // raw DB constraint violation partway through.
+  const { data: existingTenant } = await sb(c.env, 'GET','tenants',null,`?domain=eq.${encodeURIComponent(domain)}&limit=1`, null);
+  if (existingTenant?.length) return c.json({ error: `A tenant already exists with domain "${domain}"` }, 409);
+  const { data: existingUser } = await sb(c.env, 'GET','staff_users',null,`?username=eq.${encodeURIComponent(admin_username)}&limit=1`, null);
+  if (existingUser?.length) return c.json({ error: `Username "${admin_username}" is already taken` }, 409);
+
+  // 1. Create the tenant
+  const { status: tenantStatus, data: tenantData } = await sb(c.env, 'POST','tenants',{ name: tenant_name, domain }, '', null);
+  if (tenantStatus<200 || tenantStatus>=300 || !tenantData?.[0]?.id) {
+    return c.json({ error: 'Could not create tenant: '+(tenantData?.message||tenantData?.error||JSON.stringify(tenantData)) }, 500);
+  }
+  const tenantId = tenantData[0].id;
+
+  // 2. Create business_config — deliberately generic, neutral defaults for
+  // anything not provided. NOT Stone Wall Angus's own DEFAULT_CONFIG values,
+  // which would be wrong to hand a new, unrelated business.
+  const configRow = {
+    business_name: business_config.business_name,
+    phone: business_config.phone,
+    phone_raw: business_config.phone_raw || business_config.phone.replace(/\D/g,''),
+    email: business_config.email,
+    address_street: business_config.address_street || '',
+    address_city: business_config.address_city || '',
+    address_state: business_config.address_state || '',
+    address_zip: business_config.address_zip || '',
+    logo_url: business_config.logo_url || '',
+    brand_color: business_config.brand_color || '#333333',
+    pickup_days: business_config.pickup_days || [3,6],
+    visit_days: business_config.visit_days || [3,6],
+    visit_hour_start: business_config.visit_hour_start ?? 8,
+    visit_hour_end: business_config.visit_hour_end ?? 10,
+    category_order: business_config.category_order || [],
+    google_review_url: business_config.google_review_url || '',
+    facebook_url: business_config.facebook_url || '',
+  };
+  const configRes = await sb(c.env, 'POST','business_config',configRow, '', tenantId);
+  if (configRes.status<200 || configRes.status>=300) {
+    return c.json({ error: `Tenant ${tenantId} created, but business_config failed: `+(configRes.data?.message||configRes.data?.error||JSON.stringify(configRes.data))+'. The tenant row exists — fix business_config manually or delete the tenant and retry.' }, 500);
+  }
+
+  // 3. Create the first staff account
+  const passwordHash = await hashPassword(admin_password);
+  const userRes = await sb(c.env, 'POST','staff_users',{ tenant_id: tenantId, username: admin_username, password_hash: passwordHash }, '', null);
+  if (userRes.status<200 || userRes.status>=300) {
+    return c.json({ error: `Tenant ${tenantId} and business_config created, but staff account failed: `+(userRes.data?.message||userRes.data?.error||JSON.stringify(userRes.data))+'. Create the staff_users row manually to finish onboarding.' }, 500);
+  }
+
+  return c.json({
+    success: true,
+    tenant_id: tenantId,
+    frontend_domain: strippedFrontendDomain,
+    api_domain: domain,
+    admin_username,
+    still_needed: [
+      `Bind ${strippedFrontendDomain} to a Pages deployment, and ${domain} to this Worker, in the Cloudflare dashboard`,
+      'Set up this tenant\'s own Twilio number + A2P 10DLC registration',
+      'Set up this tenant\'s own PayPal integration (Partner/Marketplace API)',
+      'Set up this tenant\'s own verified Resend sending domain',
+    ],
+  });
+});
+app.get('/api/platform/tenants', requirePlatformAdmin, async (c) => {
+  const { status, data } = await sb(c.env, 'GET','tenants',null,'?order=created_at.asc', null);
+  return c.json(data, status);
 });
 
 app.post('/api/admin/login', async (c) => {
