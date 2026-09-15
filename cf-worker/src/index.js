@@ -56,6 +56,13 @@ async function sb(env, method, table, body = null, query = '', tenantId) {
       'apikey': env.SUPABASE_ANON_KEY, 'Authorization': `Bearer ${env.SUPABASE_ANON_KEY}`,
       'Content-Type': 'application/json',
       'Prefer': (method === 'POST' || method === 'PATCH') ? 'return=representation' : '',
+      // Second, independent enforcement layer (Phase 3): RLS policies check
+      // this header directly at the database level via PostgREST's
+      // current_setting('request.headers', ...) mechanism. This is separate
+      // from the tenant_id query filter above — even if a future code change
+      // forgets that filter, this header lets RLS still block the cross-tenant
+      // read/write at the database itself, independent of what the query asked for.
+      ...(tenantId !== null ? { 'X-Tenant-Id': String(tenantId) } : {}),
     },
     ...(finalBody ? { body: JSON.stringify(finalBody) } : {}),
   });
@@ -714,7 +721,14 @@ async function requireAdmin(c, next) {
   const token = c.req.header('x-admin-token');
   const raw = token ? await c.env.ADMIN_SESSIONS.get(token) : null;
   if (!raw) return c.json({ error: 'Not authenticated' }, 401);
-  c.set('adminUser', JSON.parse(raw).username);
+  const session = JSON.parse(raw);
+  c.set('adminUser', session.username);
+  // Admin routes scope by the SESSION's tenant_id (who is actually logged
+  // in), not by the request's domain — this is the correct source of truth
+  // for authenticated actions, independent of any domain quirk. Contrast
+  // with getTenantId(c), which resolves by domain and is used for public,
+  // unauthenticated customer-facing routes instead.
+  c.set('tenantId', session.tenantId);
   await next();
 }
 
@@ -1007,7 +1021,7 @@ app.get('/api/inventory', async (c) => {
 });
 app.patch('/api/inventory/:id', requireAdmin, async (c) => {
   const productId = c.req.param('id');
-  const tenantId = await getTenantId(c);
+  const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
   const body = await c.req.json();
   // Stock is tracked in whole units, not fractional — round here centrally
   // so every caller (manual edits, wholesale receiving, order fulfillment,
@@ -1138,6 +1152,23 @@ function timingSafeEqual(a, b) {
   return result === 0;
 }
 
+// ── Password hashing (PBKDF2 via Web Crypto — native to Workers) ───────────
+const PBKDF2_ITERATIONS = 100000;
+
+async function verifyPassword(password, stored) {
+  const [iterationsStr, saltHex, hashHex] = (stored||'').split(':');
+  if (!iterationsStr || !saltHex || !hashHex) return false;
+  const iterations = parseInt(iterationsStr, 10);
+  const salt = new Uint8Array(saltHex.match(/.{2}/g).map(b => parseInt(b,16)));
+  const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const derivedBits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    keyMaterial, 256
+  );
+  const computedHex = [...new Uint8Array(derivedBits)].map(b => b.toString(16).padStart(2,'0')).join('');
+  return timingSafeEqual(computedHex, hashHex); // timing-safe even though both are already fixed-length hex
+}
+
 // ── Scanned customer receipt (offline sale reconciliation) ─────────────────────
 // For sales that happen outside the normal digital order flow (farmers market,
 // other in-person sales) — staff scan the paper receipt, match items, and this
@@ -1148,7 +1179,7 @@ app.post('/api/admin/scan-customer-sale', requireAdmin, async (c) => {
     const body = await c.req.json();
     const { customer_name, line_items } = body;
     if (!line_items || !line_items.length) return c.json({ error: 'No line items provided' }, 400);
-    const tenantId = await getTenantId(c);
+    const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
 
     const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
     const subtotal = line_items.reduce((s,li) => s + (parseFloat(li.line_total)||0), 0);
@@ -1199,19 +1230,15 @@ app.post('/api/admin/scan-customer-sale', requireAdmin, async (c) => {
 app.post('/api/admin/login', async (c) => {
   const body = await c.req.json().catch(()=>({}));
   const { username, password } = body;
-  // Fail closed if credentials aren't configured — never fall back to a
-  // hardcoded default, which would be a guessable, publicly-visible-in-source
-  // password if the secret were ever accidentally unset.
-  if (!c.env.ADMIN_USERNAME || !c.env.ADMIN_PASSWORD) {
-    console.error('  ADMIN_USERNAME/ADMIN_PASSWORD not configured — refusing login');
-    return c.json({ error: 'Admin login is not configured. Contact the site administrator.' }, 500);
-  }
-  const validUsername = timingSafeEqual(username||'', c.env.ADMIN_USERNAME);
-  const validPassword = timingSafeEqual(password||'', c.env.ADMIN_PASSWORD);
-  if (!validUsername || !validPassword) return c.json({ error: 'Invalid credentials' }, 401);
+  if (!username || !password) return c.json({ error: 'Invalid credentials' }, 401);
+  const { data: users } = await sb(c.env, 'GET','staff_users',null,`?username=eq.${encodeURIComponent(username)}&limit=1`, null);
+  const user = users?.[0];
+  if (!user) return c.json({ error: 'Invalid credentials' }, 401);
+  const validPassword = await verifyPassword(password, user.password_hash);
+  if (!validPassword) return c.json({ error: 'Invalid credentials' }, 401);
   const token = randomToken();
-  await c.env.ADMIN_SESSIONS.put(token, JSON.stringify({ username }), { expirationTtl: 8*3600 });
-  return c.json({ token, username });
+  await c.env.ADMIN_SESSIONS.put(token, JSON.stringify({ username: user.username, tenantId: user.tenant_id }), { expirationTtl: 8*3600 });
+  return c.json({ token, username: user.username });
 });
 app.post('/api/admin/logout', async (c) => {
   const token = c.req.header('x-admin-token');
@@ -1221,24 +1248,24 @@ app.post('/api/admin/logout', async (c) => {
 
 app.get('/api/admin/orders', requireAdmin, async (c) => {
   const statusFilter = c.req.query('status');
-  const tenantId = await getTenantId(c);
+  const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
   const q = statusFilter ? `?status=eq.${statusFilter}&order=created_at.desc&limit=200` : `?order=created_at.desc&limit=200`;
   const { status, data } = await sb(c.env, 'GET','orders',null,q, tenantId);
   return c.json(data, status);
 });
 app.get('/api/admin/orders/:id', requireAdmin, async (c) => {
-  const tenantId = await getTenantId(c);
+  const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
   const { data } = await sb(c.env, 'GET','orders',null,`?id=eq.${c.req.param('id')}&limit=1`, tenantId);
   return c.json(data?.[0] || null);
 });
 app.get('/api/admin/orders/:id/items', requireAdmin, async (c) => {
-  const tenantId = await getTenantId(c);
+  const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
   const { status, data } = await sb(c.env, 'GET','order_items',null,`?order_id=eq.${c.req.param('id')}&order=id.asc`, tenantId);
   return c.json(data, status);
 });
 app.patch('/api/admin/order-items/:itemId', requireAdmin, async (c) => {
   const payload = await c.req.json();
-  const tenantId = await getTenantId(c);
+  const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
   if (payload.weight_lbs!=null && payload.actual_price_lb!=null) {
     payload.line_total = parseFloat((parseFloat(payload.weight_lbs)*parseFloat(payload.actual_price_lb)).toFixed(2));
     payload.status = 'weighed';
@@ -1248,7 +1275,7 @@ app.patch('/api/admin/order-items/:itemId', requireAdmin, async (c) => {
 });
 app.post('/api/admin/orders/:id/invoice', requireAdmin, async (c) => {
   const id = c.req.param('id');
-  const tenantId = await getTenantId(c);
+  const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
   const { data: orders } = await sb(c.env, 'GET','orders',null,`?id=eq.${id}&limit=1`, tenantId);
   const order = orders?.[0]; if (!order) return c.json({ error: 'Order not found' }, 404);
   // Guard against duplicate invoices/emails — once an order has moved past
@@ -1305,7 +1332,7 @@ async function deductStockForOrderItems(env, orderId, tenantId) {
 app.patch('/api/admin/orders/:id/status', requireAdmin, async (c) => {
   const id = c.req.param('id');
   const body = await c.req.json();
-  const tenantId = await getTenantId(c);
+  const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
   const { is_paid, items_prepared, status: newStatus } = body;
   const { data: orders } = await sb(c.env, 'GET','orders',null,`?id=eq.${id}&limit=1`, tenantId);
   const order = orders?.[0]; if (!order) return c.json({ error: 'Order not found' }, 404);
