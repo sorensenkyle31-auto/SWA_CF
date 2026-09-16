@@ -1406,6 +1406,35 @@ app.post('/api/platform/unlock-user', requirePlatformAdmin, async (c) => {
   await clearLoginAttempts(c.env, username);
   return c.json({ success: true, username });
 });
+// Platform-secret-gated equivalent of /api/admin/staff, for adding a staff
+// account without needing to first extract a session token from the
+// browser — simpler to call reliably from a script/terminal.
+app.post('/api/platform/add-staff', requirePlatformAdmin, async (c) => {
+  const { tenant_id, username, password } = await c.req.json().catch(()=>({}));
+  if (!tenant_id || !username || !password) return c.json({ error: 'tenant_id, username, and password are required' }, 400);
+  const { data: existing } = await sb(c.env, 'GET','staff_users',null,`?username=eq.${encodeURIComponent(username)}&limit=1`, null);
+  if (existing?.length) return c.json({ error: `Username "${username}" is already taken` }, 409);
+  const passwordHash = await hashPassword(password);
+  const { status, data } = await sb(c.env, 'POST','staff_users',{ tenant_id, username, password_hash: passwordHash }, '', null);
+  if (status<200 || status>=300) return c.json({ error: 'Could not create staff account: '+(data?.message||data?.error||JSON.stringify(data)) }, 500);
+  return c.json({ success: true, username, tenant_id });
+});
+
+// Any logged-in admin can add another staff account to their OWN tenant —
+// scoped by session tenantId, same as every other admin route. This is
+// separate from the platform-level create-tenant flow, which creates a
+// brand new tenant; this just adds a teammate to an existing one.
+app.post('/api/admin/staff', requireAdmin, async (c) => {
+  const tenantId = c.get('tenantId');
+  const { username, password } = await c.req.json().catch(()=>({}));
+  if (!username || !password) return c.json({ error: 'username and password are required' }, 400);
+  const { data: existing } = await sb(c.env, 'GET','staff_users',null,`?username=eq.${encodeURIComponent(username)}&limit=1`, null);
+  if (existing?.length) return c.json({ error: `Username "${username}" is already taken` }, 409);
+  const passwordHash = await hashPassword(password);
+  const { status, data } = await sb(c.env, 'POST','staff_users',{ tenant_id: tenantId, username, password_hash: passwordHash }, '', null);
+  if (status<200 || status>=300) return c.json({ error: 'Could not create staff account: '+(data?.message||data?.error||JSON.stringify(data)) }, 500);
+  return c.json({ success: true, username });
+});
 
 app.post('/api/admin/login', async (c) => {
   const body = await c.req.json().catch(()=>({}));
