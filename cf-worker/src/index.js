@@ -175,6 +175,17 @@ async function sendSMS(env, to, msg) {
   } catch(e) { console.warn('  SMS failed:', e.message); }
 }
 
+// Internal staff alerts (new order, payment received, new appointment) can go
+// to more than one number — TWILIO_NOTIFY supports a comma-separated list.
+// Each recipient is sent independently so one bad/invalid number in the list
+// doesn't prevent the others from receiving the alert.
+async function sendNotifySMS(env, msg) {
+  const recipients = (env.TWILIO_NOTIFY || '').split(',').map(n => n.trim()).filter(Boolean);
+  for (const to of recipients) {
+    await sendSMS(env, to, msg);
+  }
+}
+
 // ── Email via Resend's HTTP API ─────────────────────────────────────────────
 // (Mailchannels' free Cloudflare Workers email API was shut down in August
 // 2024 — Resend is Cloudflare's current recommended replacement.)
@@ -214,7 +225,7 @@ async function sendNewOrderAlert(env, order, items, tenantId) {
   const config = await getBusinessConfig(env, tenantId);
   const itemList = items.map(i => `${i.name} x${i.qty||1}`).join(', ');
   const sms = `New Order: ${order.order_number}\n${order.customer_name} | ${order.customer_phone||order.customer_email}\nItems: ${itemList}\nPickup: ${order.pickup_date||'TBD'}`;
-  await sendSMS(env, env.TWILIO_NOTIFY, sms);
+  await sendNotifySMS(env, sms);
   const email =
     `New order received.\n\nORDER: ${order.order_number}\nCustomer: ${order.customer_name}\nEmail: ${order.customer_email}\nPhone: ${order.customer_phone||'N/A'}\nPickup: ${order.pickup_date||'TBD'}\n${order.notes?'Notes: '+order.notes+'\n':''}\nItems:\n${items.map(i=>`  - ${i.name} x${i.qty||1}`).join('\n')}\n\nOpen the admin app to enter weights and send the invoice.`;
   await sendEmail(env, env.EMAIL_FARM||config.email, `New Order - ${order.order_number}`, email, undefined, tenantId);
@@ -225,7 +236,7 @@ async function sendNewOrderAlert(env, order, items, tenantId) {
 //    mark paid themselves in the admin tool, since they already know) ────────
 async function sendAdminOrderPaidAlert(env, order, amount, method) {
   const sms = `💰 Payment Received\nOrder: ${order.order_number}\n${order.customer_name} - $${amount.toFixed(2)}\nPaid via ${method||'PayPal online'}.`;
-  await sendSMS(env, env.TWILIO_NOTIFY, sms);
+  await sendNotifySMS(env, sms);
 }
 
 // ── PayPal invoice link (STUB — same as server.js, replace when ready) ─────────
@@ -1114,7 +1125,7 @@ app.post('/api/bookings', async (c) => {
   const { status, data } = await sb(c.env, 'POST','bookings',body, '', tenantId);
   if (status>=200 && status<300) {
     const name = [body.first_name, body.last_name].filter(Boolean).join(' ');
-    c.executionCtx.waitUntil(sendSMS(c.env, c.env.TWILIO_NOTIFY, `New Appointment\n${name} | ${body.visit_type||'N/A'}\n${body.visit_date||'TBD'} at ${body.time_slot||'TBD'}\n${body.phone||'no phone'}`));
+    c.executionCtx.waitUntil(sendNotifySMS(c.env, `New Appointment\n${name} | ${body.visit_type||'N/A'}\n${body.visit_date||'TBD'} at ${body.time_slot||'TBD'}\n${body.phone||'no phone'}`));
   }
   return c.json(data, status);
 });

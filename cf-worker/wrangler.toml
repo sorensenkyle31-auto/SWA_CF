@@ -5,7 +5,7 @@ compatibility_date = "2024-11-01"
 # Non-secret config — fine to commit. Secrets (below) are set via `wrangler secret put`.
 [vars]
 TWILIO_FROM   = "+12405913834"        # your Twilio sending number
-TWILIO_NOTIFY = "+18504962449"        # farm's number to receive new-order alerts
+TWILIO_NOTIFY = "+18504962449,+12408188317"        # farm's number to receive new-order alerts
 EMAIL_FROM    = "orders@stonewallangus.com"  # now verified with Resend
 EMAIL_FARM    = "stonewallangus1@myactv.net"
 ADMIN_USERNAME = "admin"
