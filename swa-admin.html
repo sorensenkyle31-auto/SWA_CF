@@ -445,7 +445,7 @@ async function openManageInventory(){
 async function loadManageInventory(){
   document.getElementById('mi-results').innerHTML = '<div class="spinner">Loading inventory...</div>';
   try{
-    const r = await api(API+'/inventory?limit=500');
+    const r = await api(API+'/admin/inventory?limit=500');
     if(!r.ok) throw new Error('Failed to load inventory');
     miInventory = await r.json() || [];
     manualInventory = miInventory; // keep the scan-invoice matching dropdown in sync too
@@ -722,7 +722,7 @@ async function openScanInvoice(){
   setScanMode('wholesale');
   if(!manualInventory.length){
     try{
-      const r = await api(API+'/inventory?limit=500');
+      const r = await api(API+'/admin/inventory?limit=500');
       if(r.ok) manualInventory = await r.json() || [];
     }catch(e){ /* dropdown will just be empty if this fails, non-fatal */ }
   }
@@ -948,7 +948,7 @@ async function openNewOrder(){
   const box=document.getElementById('no-inventory');
   box.innerHTML='<div class="spinner">Loading inventory...</div>';
   try{
-    const r=await api(API+'/inventory?limit=500');
+    const r=await api(API+'/admin/inventory?limit=500');
     if(!r.ok) throw new Error('Failed to load inventory');
     manualInventory=await r.json()||[];
     renderManualInventory();

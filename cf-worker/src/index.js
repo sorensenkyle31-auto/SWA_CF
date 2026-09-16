@@ -1045,6 +1045,19 @@ app.post('/api/paypal/capture-order/:orderId', async (c) => {
 app.get('/api/inventory', async (c) => {
   const limit = c.req.query('limit') || 500;
   const tenantId = await getTenantId(c);
+  // Explicitly select only customer-facing fields — this is a public,
+  // unauthenticated route, and the inventory table also holds internal
+  // business data (wholesale_cost, min_stock) that should never be exposed
+  // here regardless of what other columns get added to this table later.
+  const { status, data } = await sb(c.env, 'GET','inventory',null,`?select=product_id,product_name,category,price,unit,stock&order=product_id.asc&limit=${limit}`, tenantId);
+  return c.json(data, status);
+});
+// Admin-only counterpart with full data (wholesale_cost, min_stock included)
+// for the admin tool's own Inventory management screen and scan-invoice
+// product matching, which genuinely need those fields.
+app.get('/api/admin/inventory', requireAdmin, async (c) => {
+  const limit = c.req.query('limit') || 500;
+  const tenantId = c.get('tenantId'); // session-based for admin routes, not domain-based
   const { status, data } = await sb(c.env, 'GET','inventory',null,`?order=product_id.asc&limit=${limit}`, tenantId);
   return c.json(data, status);
 });
@@ -1089,11 +1102,8 @@ app.patch('/api/inventory/:id', requireAdmin, async (c) => {
   return c.json({ data, before }, status);
 });
 
-app.get('/api/bookings', async (c) => {
-  const tenantId = await getTenantId(c);
-  const { status, data } = await sb(c.env, 'GET','bookings',null,'?order=created_at.desc&limit=200', tenantId);
-  return c.json(data, status);
-});
+// Note: no public GET /api/bookings either — see the comment above
+// GET /api/orders for the reasoning; same issue, same fix.
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 function formatDayList(dayNumbers) {
   const names = dayNumbers.map(d => DAY_NAMES[d] + 's');
@@ -1130,12 +1140,13 @@ app.post('/api/bookings', async (c) => {
   return c.json(data, status);
 });
 
-app.get('/api/orders', async (c) => {
-  const limit = c.req.query('limit') || 100;
-  const tenantId = await getTenantId(c);
-  const { status, data } = await sb(c.env, 'GET','orders',null,`?order=created_at.desc&limit=${limit}`, tenantId);
-  return c.json(data, status);
-});
+// Note: there is deliberately no public GET /api/orders or GET /api/bookings
+// route. Both previously existed with no authentication and returned full
+// customer records (name, email, phone, address) to anyone who requested
+// them directly — neither frontend file ever actually called them (only the
+// POST routes, to create new orders/bookings), so they were pure unused risk
+// with no legitimate purpose. The admin tool's own order list uses the
+// separate, properly-protected /api/admin/orders route instead.
 app.post('/api/orders', async (c) => {
   const body = await c.req.json();
   const { items } = body;
