@@ -433,7 +433,7 @@ async function sendInvoiceNotification(env, order, items, tenantId) {
   ).join('\n');
   const emailText =
     `Dear ${firstName},\n\nYour order is weighed and your invoice is ready.\n\nORDER: ${order.order_number}${paypalInvoiceNumber?` (PayPal Invoice: ${paypalInvoiceNumber})`:''}\n\nINVOICE\n${lineItems}\n\n` +
-    `Subtotal:  $${subtotal.toFixed(2)}\nShipping:  Free\nTOTAL DUE: $${total.toFixed(2)}\n\n` +
+    `Subtotal:  $${subtotal.toFixed(2)}\nTOTAL DUE: $${total.toFixed(2)}\n\n` +
     `Pay online: ${payPageUrl}\n\n` +
     `Please arrange payment before pickup: ${order.pickup_date||'TBD'}\nCall ${config.phone} or email ${config.email}\n\n${config.business_name}`;
   const emailHtml = buildInvoiceEmailHtml(order, items, subtotal, total, payPageUrl, paypalInvoiceNumber, config);
@@ -759,6 +759,40 @@ async function requirePlatformAdmin(c, next) {
     return c.json({ error: 'Not authenticated' }, 401);
   }
   await next();
+}
+
+// ── Login rate limiting (per-username lockout) ──────────────────────────────
+// Stored in the same ADMIN_SESSIONS KV namespace as session tokens, under a
+// distinct key prefix so it can never collide with a real session token.
+// 5 failed attempts locks the username out; a 30-minute KV TTL auto-expires
+// the lockout as a safety net (so a lockout can never be truly permanent,
+// even if nobody unlocks it manually), and there's also a manual unlock via
+// /api/platform/unlock-user for immediate recovery — important because if
+// the account that gets locked out is the only admin, they need a way in
+// that doesn't depend on the very account that's locked.
+const LOGIN_LOCKOUT_THRESHOLD = 5;
+const LOGIN_LOCKOUT_TTL_SECONDS = 30 * 60;
+
+function loginAttemptKey(username) {
+  return `loginattempts:${username.toLowerCase()}`;
+}
+
+async function isUsernameLocked(env, username) {
+  const raw = await env.ADMIN_SESSIONS.get(loginAttemptKey(username));
+  if (!raw) return false;
+  const record = JSON.parse(raw);
+  return record.count >= LOGIN_LOCKOUT_THRESHOLD;
+}
+
+async function recordFailedLogin(env, username) {
+  const key = loginAttemptKey(username);
+  const raw = await env.ADMIN_SESSIONS.get(key);
+  const count = (raw ? JSON.parse(raw).count : 0) + 1;
+  await env.ADMIN_SESSIONS.put(key, JSON.stringify({ count }), { expirationTtl: LOGIN_LOCKOUT_TTL_SECONDS });
+}
+
+async function clearLoginAttempts(env, username) {
+  await env.ADMIN_SESSIONS.delete(loginAttemptKey(username));
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
@@ -1366,16 +1400,30 @@ app.get('/api/platform/tenants', requirePlatformAdmin, async (c) => {
   const { status, data } = await sb(c.env, 'GET','tenants',null,'?order=created_at.asc', null);
   return c.json(data, status);
 });
+app.post('/api/platform/unlock-user', requirePlatformAdmin, async (c) => {
+  const { username } = await c.req.json().catch(()=>({}));
+  if (!username) return c.json({ error: 'username is required' }, 400);
+  await clearLoginAttempts(c.env, username);
+  return c.json({ success: true, username });
+});
 
 app.post('/api/admin/login', async (c) => {
   const body = await c.req.json().catch(()=>({}));
   const { username, password } = body;
   if (!username || !password) return c.json({ error: 'Invalid credentials' }, 401);
+  // Check lockout BEFORE attempting verification, and don't record another
+  // failure once already locked — otherwise continued attempts against a
+  // locked account would keep resetting the 30-minute auto-expiry, and it
+  // would never actually count down.
+  if (await isUsernameLocked(c.env, username)) {
+    return c.json({ error: 'This account is temporarily locked due to too many failed login attempts. Try again later, or contact an administrator to unlock it.' }, 423);
+  }
   const { data: users } = await sb(c.env, 'GET','staff_users',null,`?username=eq.${encodeURIComponent(username)}&limit=1`, null);
   const user = users?.[0];
-  if (!user) return c.json({ error: 'Invalid credentials' }, 401);
+  if (!user) { await recordFailedLogin(c.env, username); return c.json({ error: 'Invalid credentials' }, 401); }
   const validPassword = await verifyPassword(password, user.password_hash);
-  if (!validPassword) return c.json({ error: 'Invalid credentials' }, 401);
+  if (!validPassword) { await recordFailedLogin(c.env, username); return c.json({ error: 'Invalid credentials' }, 401); }
+  await clearLoginAttempts(c.env, username);
   const token = randomToken();
   await c.env.ADMIN_SESSIONS.put(token, JSON.stringify({ username: user.username, tenantId: user.tenant_id }), { expirationTtl: 8*3600 });
   return c.json({ token, username: user.username });
