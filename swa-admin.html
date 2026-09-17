@@ -122,7 +122,7 @@ button{cursor:pointer;border:none;background:none;}
 .wt-line-remove{width:24px;height:24px;border-radius:6px;border:1.5px solid #FCA5A5;background:#FDF0EE;color:var(--red);font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .wt-line-remove:active{background:#FADBD5;}
 .wt-line-bulk-note{font-size:10.5px;color:var(--amber);margin:-4px 0 8px 4px;}
-.wcalc-popup{position:absolute;top:calc(100% + 4px);left:0;z-index:50;background:#fff;border:1.5px solid var(--green);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:10px;width:150px;}
+.wcalc-popup{position:absolute;top:calc(100% + 4px);left:0;z-index:50;background:#fff;border:1.5px solid var(--green);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:10px;width:190px;}
 .wcalc-entries{max-height:90px;overflow-y:auto;margin-bottom:6px;}
 .wcalc-entry{display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:2px 0;}
 .wcalc-entry-remove{color:var(--red);cursor:pointer;font-weight:800;padding:0 4px;}
@@ -1540,9 +1540,13 @@ function renderWeightCalc(){
   popup.innerHTML=`
     <div class="wcalc-entries">${entriesHtml||'<div class="wcalc-entry" style="color:var(--text3);">No entries yet</div>'}</div>
     <div class="wcalc-total"><span>Total</span><span>${weightCalcTotal().toFixed(3)}</span></div>
-    <input type="number" inputmode="decimal" step="0.001" class="wcalc-input" id="wcalc-input" placeholder="Enter weight"
-      onkeydown="handleWeightCalcKey(event)" onblur="scheduleWeightCalcClose()"/>
-    <div class="wcalc-hint">+ adds another piece<br>Enter moves to next item</div>`;
+    <div style="display:flex;gap:4px;margin-bottom:4px;">
+      <input type="number" inputmode="decimal" step="0.001" class="wcalc-input" id="wcalc-input" placeholder="Enter weight"
+        enterkeyhint="done" onkeydown="handleWeightCalcKey(event)" onblur="scheduleWeightCalcClose()" style="flex:1;margin-bottom:0;"/>
+      <button type="button" onmousedown="event.preventDefault();addWeightCalcEntry()" style="flex-shrink:0;width:32px;background:var(--green);color:#fff;border:none;border-radius:6px;font-size:16px;font-weight:800;">+</button>
+    </div>
+    <button type="button" onmousedown="event.preventDefault();finishWeightCalc()" style="width:100%;background:var(--green);color:#fff;border:none;border-radius:6px;padding:6px;font-size:12px;font-weight:700;margin-bottom:4px;">Done — Next Item</button>
+    <div class="wcalc-hint">Tap + to add another piece</div>`;
   const calcInput=document.getElementById('wcalc-input');
   if(calcInput) calcInput.focus();
 }
@@ -1585,15 +1589,20 @@ function handleWeightCalcKey(e){
     addWeightCalcEntry();
   }else if(e.key==='Enter'){
     e.preventDefault();
-    // A number typed but not yet added with + still counts when finishing
-    const input=document.getElementById('wcalc-input');
-    const val=parseFloat(input?.value);
-    if(val>0) weightCalcState.entries.push(val);
-    applyWeightCalcTotal();
-    const itemId=weightCalcState.itemId;
-    closeWeightCalc();
-    focusNextWeightField(itemId);
+    finishWeightCalc();
   }
+}
+
+function finishWeightCalc(){
+  if(!weightCalcState) return;
+  // A number typed but not yet added with + still counts when finishing
+  const input=document.getElementById('wcalc-input');
+  const val=parseFloat(input?.value);
+  if(val>0) weightCalcState.entries.push(val);
+  applyWeightCalcTotal();
+  const itemId=weightCalcState.itemId;
+  closeWeightCalc();
+  focusNextWeightField(itemId);
 }
 
 function focusNextWeightField(currentItemId){
