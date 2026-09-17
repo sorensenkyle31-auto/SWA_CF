@@ -167,6 +167,7 @@ button{cursor:pointer;border:none;background:none;}
 .btn-primary:active{background:var(--green-mid);}
 .btn-primary:disabled{background:var(--border);color:var(--text3);}
 .btn-secondary{width:100%;padding:13px;border:1.5px solid var(--green);border-radius:var(--radius);color:var(--green);font-size:14px;font-weight:700;background:transparent;transition:all .15s;}
+.btn-secondary:disabled{border-color:var(--border);color:var(--text3);}
 .btn-secondary:active{background:#EAF4E1;}
 .status-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .btn-status{padding:12px;background:var(--card);border:1.5px solid var(--border);border-radius:var(--radius);font-size:13px;font-weight:700;color:var(--text2);transition:all .15s;}
@@ -247,6 +248,7 @@ button{cursor:pointer;border:none;background:none;}
   </div>
   <div class="top-bar" style="padding-top:12px;">
     <div class="top-title">Orders</div>
+    <button class="top-action" onclick="openManageStaff()" style="margin-right:6px;">👥 Staff</button>
     <button class="top-action" onclick="openManageInventory()" style="margin-right:6px;">📋 Inventory</button>
     <button class="top-action" onclick="openScanInvoice()" style="margin-right:6px;">📷 Scan Invoice</button>
     <button class="top-action" onclick="openNewOrder()" style="margin-right:6px;">+ New</button>
@@ -387,6 +389,33 @@ button{cursor:pointer;border:none;background:none;}
   </div>
 </div>
 
+<!-- MANAGE STAFF -->
+<div class="view hidden" id="view-manage-staff">
+  <div class="top-bar">
+    <button class="top-back" onclick="showList()" title="Back to Orders">&#8592;</button>
+    <div class="top-title">Staff Accounts</div>
+    <button class="top-action" onclick="loadManageStaff()">↻</button>
+  </div>
+  <div class="detail-scroll">
+    <div class="detail-body">
+      <div class="det-section">
+        <div class="det-section-title">Add Staff Account</div>
+        <div id="ms-new-credentials" style="display:none;background:#EFF7ED;border:1px solid var(--green);border-radius:var(--radius);padding:12px;margin-bottom:12px;font-size:13px;"></div>
+        <input type="text" id="ms-new-username" placeholder="Username" autocomplete="off"
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;margin-bottom:8px;"/>
+        <input type="text" id="ms-new-password" placeholder="Password" autocomplete="off"
+          style="width:100%;box-sizing:border-box;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;margin-bottom:6px;"/>
+        <button onclick="generateStaffPassword()" style="background:none;border:none;color:var(--green);font-size:12px;text-decoration:underline;cursor:pointer;padding:0 0 10px;display:block;">Generate a secure password</button>
+        <button class="btn-primary" onclick="createStaffAccount()">Add Staff Account</button>
+      </div>
+      <div class="det-section">
+        <div class="det-section-title">Existing Staff</div>
+        <div id="ms-results"><div class="spinner">Loading staff...</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 </div>
 <div class="toast" id="toast"></div>
 
@@ -440,6 +469,59 @@ async function openManageInventory(){
   document.getElementById('mi-search').value = '';
   showView('view-manage-inventory');
   await loadManageInventory();
+}
+
+// ── Staff account management ─────────────────────────────────────────────────
+async function openManageStaff(){
+  document.getElementById('ms-new-username').value = '';
+  document.getElementById('ms-new-password').value = '';
+  document.getElementById('ms-new-credentials').style.display = 'none';
+  showView('view-manage-staff');
+  await loadManageStaff();
+}
+
+async function loadManageStaff(){
+  const box = document.getElementById('ms-results');
+  box.innerHTML = '<div class="spinner">Loading staff...</div>';
+  try{
+    const r = await api(API+'/admin/staff');
+    if(!r.ok) throw new Error('Failed to load staff accounts');
+    const staff = await r.json() || [];
+    if(!staff.length){ box.innerHTML = '<div class="empty-state">No staff accounts found.</div>'; return; }
+    box.innerHTML = staff.map(s => `
+      <div class="nf-card" style="margin-bottom:8px;">
+        <div class="nf-line"><span class="nf-line-label" style="font-weight:700;color:var(--text);">${escapeHtml(s.username)}</span>
+          <span style="font-size:11px;color:var(--text3);">Added ${new Date(s.created_at).toLocaleDateString()}</span>
+        </div>
+      </div>`).join('');
+  }catch(e){
+    box.innerHTML = '<div class="empty-state">'+escapeHtml(e.message)+'</div>';
+  }
+}
+
+function generateStaffPassword(){
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  const pw = btoa(String.fromCharCode(...bytes)).replace(/[+/=]/g, c => ({'+':'8','/':'9','=':''}[c]));
+  document.getElementById('ms-new-password').value = pw;
+}
+
+async function createStaffAccount(){
+  const username = document.getElementById('ms-new-username').value.trim();
+  const password = document.getElementById('ms-new-password').value.trim();
+  if(!username || !password){ toast('Please enter both a username and a password.','error'); return; }
+  try{
+    const r = await api(API+'/admin/staff', {method:'POST', body: JSON.stringify({username, password})});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || 'Could not create staff account.');
+    const box = document.getElementById('ms-new-credentials');
+    box.style.display = 'block';
+    box.innerHTML = `<strong>Account created — copy this now, it won't be shown again:</strong><br>Username: <strong>${escapeHtml(username)}</strong><br>Password: <strong>${escapeHtml(password)}</strong>`;
+    document.getElementById('ms-new-username').value = '';
+    document.getElementById('ms-new-password').value = '';
+    loadManageStaff();
+  }catch(e){
+    toast(e.message,'error');
+  }
 }
 
 async function loadManageInventory(){
@@ -1421,6 +1503,22 @@ function calcLine(itemId){
   recalcTotals();
 }
 
+function allWeightsValid(){
+  if(!currentItems.length) return false;
+  return currentItems.every(item=>{
+    const lbs=parseFloat(document.getElementById('wlbs-'+item.id)?.value)||parseFloat(item.weight_lbs)||0;
+    return lbs>0.01;
+  });
+}
+
+function updateWeightButtonStates(){
+  const valid=allWeightsValid();
+  const invBtn=document.getElementById('btn-invoice');
+  const warning=document.getElementById('weight-warning');
+  if(invBtn) invBtn.disabled=!valid;
+  if(warning) warning.style.display=(invBtn&&!valid)?'block':'none';
+}
+
 function recalcTotals(){
   let sub=0;
   currentItems.forEach(item=>{
@@ -1428,6 +1526,7 @@ function recalcTotals(){
     const price=parseFloat(document.getElementById('wprice-'+item.id)?.value)||parseFloat(item.actual_price_lb||item.price_per_unit||0);
     sub+=lbs*price;
   });
+  updateWeightButtonStates();
   const s=document.getElementById('t-sub');
   const t=document.getElementById('t-total');
   if(s) s.textContent=sub>0?'$'+sub.toFixed(2):'--';
@@ -1486,7 +1585,10 @@ function renderActions(){
     html+=`<button class="btn-primary" id="btn-invoice" onclick="saveAndInvoice()">📧 Save Weights &amp; Send Invoice</button>`;
   }
   if(canEditWeights){
-    html+=`<button class="btn-secondary" onclick="saveAllWeights()">Save All Weights</button>`;
+    html+=`<button class="btn-secondary" id="btn-save-weights" onclick="saveAllWeights()">Save All Weights</button>`;
+  }
+  if(canInvoice||canEditWeights){
+    html+=`<div id="weight-warning" style="display:none;font-size:12px;color:var(--amber);text-align:center;margin-top:-4px;">Enter a weight greater than 0 for every item to send the invoice.</div>`;
   }
   if(!['fulfilled','cancelled'].includes(o.status)){
     html+=`<div class="status-row">`;
@@ -1495,6 +1597,7 @@ function renderActions(){
     html+=`</div>`;
   }
   document.getElementById('detail-actions').innerHTML=html;
+  updateWeightButtonStates();
 }
 
 async function saveAllWeights(navigateBack){
