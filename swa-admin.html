@@ -122,6 +122,13 @@ button{cursor:pointer;border:none;background:none;}
 .wt-line-remove{width:24px;height:24px;border-radius:6px;border:1.5px solid #FCA5A5;background:#FDF0EE;color:var(--red);font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
 .wt-line-remove:active{background:#FADBD5;}
 .wt-line-bulk-note{font-size:10.5px;color:var(--amber);margin:-4px 0 8px 4px;}
+.wcalc-popup{position:absolute;top:calc(100% + 4px);left:0;z-index:50;background:#fff;border:1.5px solid var(--green);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.18);padding:10px;width:150px;}
+.wcalc-entries{max-height:90px;overflow-y:auto;margin-bottom:6px;}
+.wcalc-entry{display:flex;justify-content:space-between;font-size:12px;color:var(--text2);padding:2px 0;}
+.wcalc-entry-remove{color:var(--red);cursor:pointer;font-weight:800;padding:0 4px;}
+.wcalc-total{font-size:13px;font-weight:800;color:var(--green);border-top:1px solid var(--border2);padding-top:5px;margin-bottom:6px;display:flex;justify-content:space-between;}
+.wcalc-input{width:100%;box-sizing:border-box;padding:6px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:4px;}
+.wcalc-hint{font-size:10px;color:var(--text3);text-align:center;line-height:1.3;}
 
 /* ── Totals ────────────────────────────────────────────────────────────────── */
 .totals-card{background:var(--card);border:1px solid var(--border2);border-radius:var(--radius);padding:14px;}
@@ -578,11 +585,11 @@ function renderManageInventory(){
             onchange="saveInventoryField(${p.product_id},'min_stock',this.value,this)"/>
         </div>` : ''}
         <div class="nf-line"><span class="nf-line-label">Price ($${p.unit||'/lb'})</span>
-          <input type="number" step="0.01" value="${p.price??''}"
+          <input type="number" inputmode="decimal" step="0.01" value="${p.price??''}"
             onchange="saveInventoryField(${p.product_id},'price',this.value,this)"/>
         </div>
         ${showAdvanced ? `<div class="nf-line"><span class="nf-line-label">Wholesale Cost</span>
-          <input type="number" step="0.01" value="${p.wholesale_cost??''}" placeholder="—"
+          <input type="number" inputmode="decimal" step="0.01" value="${p.wholesale_cost??''}" placeholder="—"
             onchange="saveInventoryField(${p.product_id},'wholesale_cost',this.value,this)"/>
         </div>` : ''}
       </div>`;
@@ -871,9 +878,9 @@ function renderScanResults(){
           </select>
         </div>
         <div class="nf-line"><span class="nf-line-label">Pieces</span><input type="number" value="${li.pieces??''}" onchange="updateScanRow(${li.rowId},'pieces',this.value)"/></div>
-        <div class="nf-line"><span class="nf-line-label">Weight (lbs)</span><input type="number" step="0.01" value="${li.weight_lbs??''}" onchange="updateScanRow(${li.rowId},'weight_lbs',this.value)"/></div>
-        <div class="nf-line"><span class="nf-line-label">${scanMode==='wholesale'?'Wholesale $/lb':'Sale Price $/lb'}</span><input type="number" step="0.01" value="${li.wholesale_price_per_lb??''}" onchange="updateScanRow(${li.rowId},'wholesale_price_per_lb',this.value)"/></div>
-        <div class="nf-line"><span class="nf-line-label">Total Amount</span><input type="number" step="0.01" value="${li.total_amount??''}" onchange="updateScanRow(${li.rowId},'total_amount',this.value)"/></div>
+        <div class="nf-line"><span class="nf-line-label">Weight (lbs)</span><input type="number" inputmode="decimal" step="0.01" value="${li.weight_lbs??''}" onchange="updateScanRow(${li.rowId},'weight_lbs',this.value)"/></div>
+        <div class="nf-line"><span class="nf-line-label">${scanMode==='wholesale'?'Wholesale $/lb':'Sale Price $/lb'}</span><input type="number" inputmode="decimal" step="0.01" value="${li.wholesale_price_per_lb??''}" onchange="updateScanRow(${li.rowId},'wholesale_price_per_lb',this.value)"/></div>
+        <div class="nf-line"><span class="nf-line-label">Total Amount</span><input type="number" inputmode="decimal" step="0.01" value="${li.total_amount??''}" onchange="updateScanRow(${li.rowId},'total_amount',this.value)"/></div>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-top:8px;cursor:pointer;">
           <input type="checkbox" ${li.skip?'checked':''} onchange="updateScanRow(${li.rowId},'skip',this.checked)"/> Skip this line (don't apply to inventory)
         </label>
@@ -1155,10 +1162,10 @@ function renderManualRows(){
   box.innerHTML=manualRows.map(row=>`
     <div class="wt-line" id="no-row-${row.rowId}">
       <div class="wt-line-name" title="${row.name}">${row.name}</div>
-      <div class="wt-line-field"><input type="number" min="0" step="0.001" placeholder="0.000" value="${row.weight}"
+      <div class="wt-line-field"><input type="number" inputmode="decimal" min="0" step="0.001" placeholder="0.000" value="${row.weight}"
              oninput="updateManualRow(${row.rowId},'weight',this.value);calcManualLine(${row.rowId})"/></div>
-      <span class="wt-line-sep">lb×</span>
-      <div class="wt-line-field"><input type="number" min="0" step="0.01" placeholder="${row.catalogPrice.toFixed(2)}" value="${row.price||''}"
+      <span class="wt-line-sep">${(row.unit||'/lb').replace('/','')}×</span>
+      <div class="wt-line-field"><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="${row.catalogPrice.toFixed(2)}" value="${row.price||''}"
              oninput="updateManualRow(${row.rowId},'price',this.value);calcManualLine(${row.rowId})"/></div>
       <span class="wt-line-sep">=</span>
       <span class="wt-line-total" id="no-rowtotal-${row.rowId}">${row.weight&&row.price?'$'+(row.weight*row.price).toFixed(2):'--'}</span>
@@ -1443,9 +1450,9 @@ function renderDetail(){
       const nameLabel=item.product_name+(item.qty_ordered>1?' ×'+item.qty_ordered:'');
       html+=`<div class="wt-line${hasWeight?' weighed':''}" id="wcard-${item.id}">
         <div class="wt-line-name" title="${item.product_name}">${nameLabel}</div>
-        <div class="wt-line-field"><input type="number" min="0" step="0.001" placeholder="0.000" id="wlbs-${item.id}" value="${item.weight_lbs||''}" oninput="calcLine('${item.id}')"/></div>
-        <span class="wt-line-sep">lb×</span>
-        <div class="wt-line-field"><input type="number" min="0" step="0.01" placeholder="${parseFloat(item.price_per_unit||0).toFixed(2)}" id="wprice-${item.id}" value="${item.actual_price_lb||item.price_per_unit||''}" oninput="calcLine('${item.id}')"/></div>
+        <div class="wt-line-field" style="position:relative;" id="wfield-${item.id}"><input type="number" inputmode="decimal" min="0" step="0.001" placeholder="0.000" id="wlbs-${item.id}" value="${item.weight_lbs||''}" oninput="calcLine('${item.id}')" onfocus="openWeightCalc('${item.id}')"/></div>
+        <span class="wt-line-sep">${(item.unit||'/lb').replace('/','')}×</span>
+        <div class="wt-line-field"><input type="number" inputmode="decimal" min="0" step="0.01" placeholder="${parseFloat(item.price_per_unit||0).toFixed(2)}" id="wprice-${item.id}" value="${item.actual_price_lb||item.price_per_unit||''}" oninput="calcLine('${item.id}')"/></div>
         <span class="wt-line-sep">=</span>
         <span class="wt-line-total" id="wtotal-${item.id}">${item.line_total?'$'+parseFloat(item.line_total).toFixed(2):'--'}</span>
       </div>${isBulk?'<div class="wt-line-bulk-note">Bulk item — enter negotiated price per lb</div>':''}`;
@@ -1494,6 +1501,109 @@ function renderDetail(){
 }
 
 function showToast(msg){toast(msg,'error');}
+
+// ── Weight calculator popup ──────────────────────────────────────────────────
+// Lets staff add up several individually-weighed pieces for one line item
+// (e.g. three steaks weighed separately) instead of doing the math by hand.
+let weightCalcState = null; // { itemId, entries: [] }
+
+function weightCalcTotal(){
+  return weightCalcState.entries.reduce((s,n)=>s+n,0);
+}
+
+function openWeightCalc(itemId){
+  if(weightCalcState && weightCalcState.itemId!==itemId) closeWeightCalc();
+  if(weightCalcState && weightCalcState.itemId===itemId) return; // already open for this item
+  const mainInput=document.getElementById('wlbs-'+itemId);
+  const existing=parseFloat(mainInput?.value)||0;
+  weightCalcState={ itemId, entries: existing>0 ? [existing] : [] };
+  const container=document.getElementById('wfield-'+itemId);
+  if(!container) return;
+  const popup=document.createElement('div');
+  popup.className='wcalc-popup';
+  popup.id='wcalc-popup';
+  container.appendChild(popup);
+  renderWeightCalc();
+}
+
+function closeWeightCalc(){
+  const popup=document.getElementById('wcalc-popup');
+  if(popup) popup.remove();
+  weightCalcState=null;
+}
+
+function renderWeightCalc(){
+  const popup=document.getElementById('wcalc-popup');
+  if(!popup||!weightCalcState) return;
+  const {entries}=weightCalcState;
+  const entriesHtml=entries.map((n,i)=>`<div class="wcalc-entry"><span>${n.toFixed(3)}</span><span class="wcalc-entry-remove" onmousedown="event.preventDefault();removeWeightCalcEntry(${i})">×</span></div>`).join('');
+  popup.innerHTML=`
+    <div class="wcalc-entries">${entriesHtml||'<div class="wcalc-entry" style="color:var(--text3);">No entries yet</div>'}</div>
+    <div class="wcalc-total"><span>Total</span><span>${weightCalcTotal().toFixed(3)}</span></div>
+    <input type="number" inputmode="decimal" step="0.001" class="wcalc-input" id="wcalc-input" placeholder="Enter weight"
+      onkeydown="handleWeightCalcKey(event)" onblur="scheduleWeightCalcClose()"/>
+    <div class="wcalc-hint">+ adds another piece<br>Enter moves to next item</div>`;
+  const calcInput=document.getElementById('wcalc-input');
+  if(calcInput) calcInput.focus();
+}
+
+function scheduleWeightCalcClose(){
+  // Short delay so a click on the popup's own remove-entry button (which
+  // also blurs this input) has time to register before the popup disappears.
+  setTimeout(()=>{
+    if(document.activeElement?.id!=='wcalc-input') closeWeightCalc();
+  }, 150);
+}
+
+function addWeightCalcEntry(){
+  const input=document.getElementById('wcalc-input');
+  const val=parseFloat(input?.value);
+  if(val>0){
+    weightCalcState.entries.push(val);
+    applyWeightCalcTotal();
+    renderWeightCalc();
+  }
+}
+
+function removeWeightCalcEntry(index){
+  weightCalcState.entries.splice(index,1);
+  applyWeightCalcTotal();
+  renderWeightCalc();
+}
+
+function applyWeightCalcTotal(){
+  const mainInput=document.getElementById('wlbs-'+weightCalcState.itemId);
+  if(mainInput){
+    mainInput.value=weightCalcTotal().toFixed(3);
+    calcLine(weightCalcState.itemId);
+  }
+}
+
+function handleWeightCalcKey(e){
+  if(e.key==='+'){
+    e.preventDefault();
+    addWeightCalcEntry();
+  }else if(e.key==='Enter'){
+    e.preventDefault();
+    // A number typed but not yet added with + still counts when finishing
+    const input=document.getElementById('wcalc-input');
+    const val=parseFloat(input?.value);
+    if(val>0) weightCalcState.entries.push(val);
+    applyWeightCalcTotal();
+    const itemId=weightCalcState.itemId;
+    closeWeightCalc();
+    focusNextWeightField(itemId);
+  }
+}
+
+function focusNextWeightField(currentItemId){
+  const idx=currentItems.findIndex(i=>String(i.id)===String(currentItemId));
+  const next=currentItems[idx+1];
+  if(next){
+    const nextInput=document.getElementById('wlbs-'+next.id);
+    if(nextInput) nextInput.focus();
+  }
+}
 
 function calcLine(itemId){
   const lbs  =parseFloat(document.getElementById('wlbs-'+itemId)?.value)||0;
